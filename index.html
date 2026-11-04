@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Deck Crawly</title>
+    <!-- Ao "Adicionar à Tela de Início" no iPad, abre em tela cheia, sem as barras do Safari. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Deck Crawly" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <meta name="theme-color" content="#17121f" />
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">
+          <h1>DECK CRAWLY</h1>
+          <span>Olha o naipe dessa masmorra</span>
+        </div>
+        <div class="hud">
+          <span id="hud-floor" class="pill"></span>
+          <span id="hud-seed" class="pill muted"></span>
+          <button id="btn-fog" class="btn" title="Liga ou desliga a névoa (tecla F)"></button>
+          <button id="btn-fx" class="btn" title="Liga ou desliga animações e efeitos (tecla E)"></button>
+          <button id="btn-sound" class="btn" title="Liga ou desliga o som (tecla M)"></button>
+          <button id="btn-help" class="btn">Regras</button>
+          <button id="btn-new" class="btn">Novo jogo</button>
+        </div>
+      </header>
+
+      <main class="stage">
+        <section id="map-wrap" class="map-wrap">
+          <div id="map" class="map"></div>
+          <div class="zoom" role="group" aria-label="Zoom do mapa">
+            <button id="btn-center" class="btn" title="Centralizar no personagem (tecla C)" aria-label="Centralizar no personagem" disabled>
+              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6" /><path d="M8 1v3M8 12v3M1 8h3M12 8h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
+            </button>
+            <button id="btn-zoom-out" class="btn" title="Afastar (tecla -)" aria-label="Afastar">−</button>
+            <span id="zoom-level" class="zoom-level" title="100% mostra a masmorra inteira"></span>
+            <button id="btn-zoom-in" class="btn" title="Aproximar (tecla +)" aria-label="Aproximar">+</button>
+          </div>
+        </section>
+        <aside class="side">
+          <div id="piles" class="piles"></div>
+          <div id="panel" class="panel"></div>
+          <div id="log" class="log"></div>
+        </aside>
+      </main>
+
+      <footer class="handbar">
+        <div id="hand" class="hand"></div>
+      </footer>
+
+      <div id="toast" class="toast" role="status"></div>
+      <div id="overlay" class="overlay" hidden></div>
+      <div id="vignette" class="vignette" aria-hidden="true"></div>
+      <div id="fx" class="fx-layer" aria-hidden="true"></div>
+    </div>
+
+    <script src="js/cards.js"></script>
+    <script src="js/map.js"></script>
+    <script src="js/game.js"></script>
+    <script src="js/audio.js"></script>
+    <script src="js/ui.js"></script>
+  </body>
+</html>
