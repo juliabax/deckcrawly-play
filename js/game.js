@@ -18,6 +18,9 @@
 
   const fail = (error) => ({ ok: false, error });
 
+  // Só aparência (a arte escolhe o desenho): um tipo de inimigo por andar, em rodízio.
+  const ENEMY_KINDS = ['skeleton1', 'skeleton2', 'vampire'];
+
   class Game {
     constructor(opts = {}) {
       this.config = Object.assign({}, DEFAULT_CONFIG, opts.config);
@@ -83,7 +86,7 @@
       this.floorNo = n;
       this.floor = DC.generateFloor(this.rng, this.config, () => this.dungeonDraw());
       this.floor.enemies = DC.placeEnemies(this.rng, this.floor, this.config.enemiesPerFloor, this.config.enemyRange).map(
-        (spot, id) => ({ id, ...spot, cards: this.enemyCards(), down: [], dead: false }),
+        (spot, id) => ({ id, ...spot, kind: ENEMY_KINDS[(this.floorNo - 1 + id) % ENEMY_KINDS.length], cards: this.enemyCards(), down: [], dead: false }),
       );
       this.player = { x: this.floor.start.x, y: this.floor.start.y };
       this.visited = new Set([this.floor.grid[this.player.y][this.player.x].room]);

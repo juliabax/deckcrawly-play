@@ -355,20 +355,31 @@ html:not(.touch) .btn:hover:not(:disabled) {
 /* destaques de alcance e de portas/baús */
 .tile.reach {
   cursor: pointer;
-  box-shadow: inset 0 0 0 2px rgba(231, 184, 74, 0.4);
+  outline: 2px solid rgba(231, 184, 74, 0.4);
+  outline-offset: -2px;
 }
 
 .tile.reach::after {
   content: '';
   position: absolute;
+  z-index: 2;
   inset: 30%;
   border-radius: 50%;
   background: rgba(231, 184, 74, 0.6);
   pointer-events: none;
 }
 
-.tile.path {
-  background-color: rgba(231, 184, 74, 0.5) !important;
+/* Camada de cor por cima do fundo da casa: caminho e zona de ataque aparecem sobre qualquer arte. */
+.tile::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.tile.path::before {
+  background: rgba(231, 184, 74, 0.5);
 }
 
 .tile.open-ok,
@@ -1098,12 +1109,20 @@ html:not(.touch) .no-fx .hand .card:hover {
 
 /* zona de ataque: as casas em volta do inimigo ficam avermelhadas */
 .tile.zone {
-  background-image: linear-gradient(rgba(214, 70, 70, 0.34), rgba(214, 70, 70, 0.34));
-  box-shadow: inset 0 0 0 1px rgba(255, 120, 120, 0.35);
+  outline: 1px solid rgba(255, 120, 120, 0.35);
+  outline-offset: -1px;
 }
 
-.tile.t-enemy {
-  background-image: linear-gradient(rgba(214, 70, 70, 0.5), rgba(214, 70, 70, 0.5));
+.tile.zone::before {
+  background: rgba(214, 70, 70, 0.34);
+}
+
+.tile.t-enemy::before {
+  background: rgba(214, 70, 70, 0.5);
+}
+
+.tile.zone.path::before {
+  background: linear-gradient(rgba(231, 184, 74, 0.45), rgba(231, 184, 74, 0.45)), linear-gradient(rgba(214, 70, 70, 0.34), rgba(214, 70, 70, 0.34));
 }
 
 .tile .enemy {
@@ -1138,10 +1157,13 @@ html:not(.touch) .no-fx .hand .card:hover {
   outline-offset: -3px;
 }
 
-.tile.fight::before {
+.tile.fight::after {
   content: '⚔';
   position: absolute;
-  z-index: 2;
+  inset: auto;
+  background: none;
+  border-radius: 0;
+  z-index: 3;
   font-size: calc(var(--tile) * 0.55);
   line-height: 1;
   color: #fff;
@@ -1227,6 +1249,170 @@ html:not(.touch) .no-fx .hand .card:hover {
 }
 
 .no-fx .pile.low {
+  animation: none;
+}
+
+/* ---------- arte de pixel art (a classe `art` no <html> é ligada pelo JS) ---------- */
+
+/* cartas de custo e desenhos ficam acima da camada de cor */
+.t-door .mini,
+.t-chest .mini {
+  z-index: 2;
+}
+
+.t-door .mini {
+  position: relative;
+}
+
+/* as camadas de imagem de cada casa vêm no estilo em linha (DC.art.style) */
+html.art .tile.spr {
+  background-color: rgb(37, 19, 26); /* a cor de fundo da folha de peças */
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  box-shadow: none;
+}
+
+html.art .t-wall {
+  background: rgb(37, 19, 26);
+  box-shadow: none;
+}
+
+html.art .t-floor.treasure.spr::before {
+  background: rgba(231, 184, 74, 0.2);
+}
+
+.sprite {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  image-rendering: pixelated;
+  background-repeat: no-repeat;
+}
+
+.chest-sprite {
+  inset: 0;
+  background-image: url('../assets/pixel/chest_1.png');
+  background-size: calc(var(--tile) * 4) var(--tile);
+}
+
+.chest-sprite.open {
+  background-position: calc(var(--tile) * -3) 0;
+}
+
+/* inimigo: quadros de 32 px (2 casas de largura e altura), com os pés na casa dele */
+.enemy-sprite {
+  left: -50%;
+  top: -80%;
+  width: 200%;
+  height: 200%;
+  background-size: calc(var(--tile) * 12) calc(var(--tile) * 2);
+  animation: foeidle 0.9s steps(6) infinite;
+}
+
+.enemy-sprite.k-skeleton1 {
+  background-image: url('../assets/pixel/enemies-skeleton1_idle.png');
+}
+
+.enemy-sprite.k-skeleton2 {
+  background-image: url('../assets/pixel/enemies-skeleton2_idle.png');
+}
+
+.enemy-sprite.k-vampire {
+  background-image: url('../assets/pixel/enemies-vampire_idle.png');
+}
+
+.enemy-sprite.hit {
+  background-size: calc(var(--tile) * 10) calc(var(--tile) * 2);
+  animation: foehit 0.5s steps(5) 1;
+}
+
+.enemy-sprite.hit.k-skeleton1 {
+  background-image: url('../assets/pixel/enemies-skeleton1_take_damage.png');
+}
+
+.enemy-sprite.hit.k-skeleton2 {
+  background-image: url('../assets/pixel/enemies-skeleton2_take_damage.png');
+}
+
+.enemy-sprite.hit.k-vampire {
+  background-image: url('../assets/pixel/enemies-vampire_take_damage.png');
+}
+
+@keyframes foeidle {
+  to {
+    background-position: calc(var(--tile) * -12) 0;
+  }
+}
+
+@keyframes foehit {
+  to {
+    background-position: calc(var(--tile) * -10) 0;
+  }
+}
+
+/* com arte, as cartas do inimigo flutuam acima da cabeça dele */
+html.art .enemy-cards {
+  bottom: auto;
+  top: -58%;
+  z-index: 3;
+}
+
+html.art .tile .enemy {
+  display: none;
+}
+
+/* com arte, a carta de custo da porta vira uma etiqueta embaixo, e a grade de ferro aparece */
+html.art .t-door .mini {
+  width: calc(var(--tile) * 0.44);
+  height: calc(var(--tile) * 0.58);
+  font-size: calc(var(--tile) * 0.25);
+  align-self: end;
+  margin-bottom: 4%;
+}
+
+html.art .t-chest .mini {
+  width: calc(var(--tile) * 0.4);
+  height: calc(var(--tile) * 0.52);
+  font-size: calc(var(--tile) * 0.22);
+}
+
+/* herói no lugar da bolinha: dois quadros que se alternam */
+html.art .token .ball {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  background-color: transparent;
+  background-image: url('../assets/pixel/Dungeon_Character.png');
+  background-repeat: no-repeat;
+  background-size: calc(var(--tile) * 7) calc(var(--tile) * 4);
+  background-position: calc(var(--tile) * -1) 0;
+  box-shadow: none;
+  image-rendering: pixelated;
+  animation: heroidle 0.8s steps(1) infinite;
+}
+
+@keyframes heroidle {
+  50% {
+    background-position: calc(var(--tile) * -1) calc(var(--tile) * -2);
+  }
+}
+
+/* inimigo grande na janela de combate */
+.foe {
+  display: none;
+}
+
+html.art .foe {
+  --tile: 92px;
+  display: block;
+  position: relative;
+  width: var(--tile);
+  height: calc(var(--tile) * 1.15);
+  margin: 0 auto;
+}
+
+.no-fx .enemy-sprite,
+.no-fx .token .ball {
   animation: none;
 }
 

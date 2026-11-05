@@ -94,8 +94,15 @@
       this.setTouch(this.detectTouch());
       this.sfx = new DC.Sfx();
       this.syncSoundButton();
+      this.artAvailable = false; // as imagens existem e carregaram
+      this.artOn = this.loadArt();
+      DC.art.preload().then((ok) => {
+        this.artAvailable = ok;
+        this.syncArt();
+      });
       this.tensionOn = false;
       this.lowDeckOn = false;
+      this.foeHit = false;
       this.handReset = true; // a primeira mão é "dada" com animação, sem comparar com a anterior
       this.lastCounts = null;
       this.fxExit = null; // para onde as cartas gastas voam (padrão: o descarte)
@@ -154,6 +161,7 @@
       document.getElementById('btn-fog').addEventListener('click', () => this.toggleFog());
       document.getElementById('btn-fx').addEventListener('click', () => this.toggleFx());
       document.getElementById('btn-sound').addEventListener('click', () => this.toggleSound());
+      document.getElementById('btn-art').addEventListener('click', () => this.toggleArt());
       // O navegador só libera áudio depois de um clique ou tecla do jogador.
       for (const type of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown']) {
         document.addEventListener(type, () => this.sfx.unlock(), { capture: true });
@@ -220,6 +228,7 @@
       }
       if ((e.key === 'f' || e.key === 'F') && !e.metaKey && !e.ctrlKey && !e.altKey) return this.toggleFog();
       if ((e.key === 'e' || e.key === 'E') && !e.metaKey && !e.ctrlKey && !e.altKey) return this.toggleFx();
+      if ((e.key === 'a' || e.key === 'A') && !e.metaKey && !e.ctrlKey && !e.altKey) return this.toggleArt();
       if ((e.key === 'm' || e.key === 'M') && !e.metaKey && !e.ctrlKey && !e.altKey) return this.toggleSound();
       if ((e.key === 'c' || e.key === 'C') && !e.metaKey && !e.ctrlKey && !e.altKey) return this.centerCamera();
       if (!e.metaKey && !e.ctrlKey && !e.altKey) {
@@ -367,6 +376,44 @@
       btn.textContent = `Efeitos: ${this.fxOn ? 'ligados' : 'desligados'}`;
       btn.setAttribute('aria-pressed', String(this.fxOn));
       document.body.classList.toggle('no-fx', !this.fxOn);
+    }
+
+    // ---------- arte (pixel art opcional) ----------
+
+    loadArt() {
+      try {
+        return localStorage.getItem('deckcrawly.art') !== '0';
+      } catch (e) {
+        return true;
+      }
+    }
+
+    artActive() {
+      return this.artAvailable && this.artOn;
+    }
+
+    toggleArt() {
+      if (!this.artAvailable) return this.toast('A arte de pixel art não está disponível nesta versão.');
+      this.artOn = !this.artOn;
+      try {
+        localStorage.setItem('deckcrawly.art', this.artOn ? '1' : '0');
+      } catch (e) {
+        /* sem armazenamento: vale só nesta sessão */
+      }
+      this.syncArt();
+    }
+
+    // Liga a classe `art` no <html> (o CSS troca o desenho todo) e redesenha o mapa.
+    syncArt() {
+      const btn = document.getElementById('btn-art');
+      btn.hidden = !this.artAvailable;
+      btn.textContent = `Arte: ${this.artOn ? 'pixel' : 'clássica'}`;
+      btn.setAttribute('aria-pressed', String(this.artOn));
+      document.documentElement.classList.toggle('art', this.artActive());
+      if (!this.game) return;
+      this.renderMap(false);
+      this.updateHighlights();
+      if (this.game.inCombat()) this.renderOverlay();
     }
 
     // ---------- toque ----------
@@ -799,6 +846,7 @@
       this.sel = [];
       this.sound('hit');
       if (res.exact) this.sound('ding', 0.12);
+      this.foeHit = !res.victory; // o inimigo se encolhe ao levar o golpe
       this.renderAll();
       if (res.victory) {
         const tile = this.tileEls[enemy.y * g.floor.w + enemy.x];
@@ -1306,6 +1354,9 @@
       const rect = this.el.mapWrap.getBoundingClientRect();
       const fit = Math.min((rect.width - 24) / f.w, (rect.height - 24) / f.h);
       this.tile = Number.isFinite(fit) && fit > 0 ? Math.max(20, Math.min(140, Math.floor(fit * ZOOMS[this.zoom]))) : 40;
+      const art = this.artActive();
+      // Com a arte, a casa é múltiplo de 8 px: a pixel art de 16 px fica nítida.
+      if (art) this.tile = Math.max(24, Math.floor(this.tile / 8) * 8);
 
       const map = this.el.map;
       map.style.setProperty('--tile', `${this.tile}px`);
@@ -1340,7 +1391,7 @@
               if (enemy) {
                 const left = remainingEnemyCards(enemy);
                 cls += ' t-enemy zone';
-                inner = ENEMY_SVG + `<span class="enemy-cards">${left.map(miniHTML).join('')}</span>`;
+                inner = (art ? `<i class="sprite enemy-sprite k-${enemy.kind}"></i>` : ENEMY_SVG) + `<span class="enemy-cards">${left.map(miniHTML).join('')}</span>`;
                 title = `Inimigo (${left.length} carta${left.length === 1 ? '' : 's'}): entrar na zona vermelha começa um combate`;
               } else if (DC.enemyAt(f, x, y)) {
                 cls += ' zone';
@@ -1350,12 +1401,12 @@
             }
             case 'start':
               cls = 't-floor start';
-              inner = '▲';
+              inner = art ? '' : '▲';
               title = 'Escada de entrada';
               break;
             case 'exit':
               cls = 't-floor exit';
-              inner = '▼';
+              inner = art ? '' : '▼';
               title = 'Escada de saída';
               break;
             case 'door': {
@@ -1368,13 +1419,20 @@
             case 'chest': {
               const c = f.chests[cell.ref];
               cls = `t-floor t-chest${alt}${treasure}${justOpened(c.open)}`;
-              inner = CHEST_SVG(c.open) + (c.open ? '' : miniHTML(c.cost));
+              inner = (art ? `<i class="sprite chest-sprite${c.open ? ' open' : ''}"></i>` : CHEST_SVG(c.open)) + (c.open ? '' : miniHTML(c.cost));
               title = c.open ? 'Baú aberto' : `Baú: custo ${DC.rankLabel(c.cost.rank)}`;
               break;
             }
           }
-          const delay = sweep ? ` style="animation-delay:${sweep}ms"` : '';
-          html += `<div class="tile ${cls}${fresh ? ' reveal' : ''}" data-x="${x}" data-y="${y}"${title ? ` title="${title}"` : ''}${delay}>${inner}</div>`;
+          const styles = [];
+          if (sweep) styles.push(`animation-delay:${sweep}ms`);
+          const sprite = art && shown ? DC.art.tileSprite(f, x, y) : null;
+          if (sprite) {
+            cls += ' spr';
+            styles.push(DC.art.style(sprite));
+          }
+          const style = styles.length ? ` style="${styles.join(';')}"` : '';
+          html += `<div class="tile ${cls}${fresh ? ' reveal' : ''}" data-x="${x}" data-y="${y}"${title ? ` title="${title}"` : ''}${style}>${inner}</div>`;
         }
       }
       html += '<div class="token" id="token"><i class="ball"></i></div>';
@@ -1541,8 +1599,11 @@
       const fleeLabel = pick
         ? `Fugir descartando ${label(pick)}${last ? ' (é a sua última carta: você perde)' : ''}`
         : 'Fugir (escolha 1 carta para descartar)';
+      const hit = this.foeHit;
+      this.foeHit = false;
       return `<div class="modal combat">
         <h2>⚔ Combate!</h2>
+        <div class="foe"><i class="sprite enemy-sprite k-${enemy.kind}${hit ? ' hit' : ''}"></i></div>
         <p>${this.isTouch() ? 'Toque' : 'Escolha'} em cartas da mão cuja <b>soma</b> seja pelo menos o custo de <b>uma</b> carta do inimigo e ${this.isTouch() ? 'toque' : 'clique'} nela para derrubá-la. <b>Soma exata</b> compra 1 carta. Derrotando as ${enemy.cards.length} cartas você vence e compra 1 carta.</p>
         <div class="cardrow enemy-row">${enemyRow}</div>
         <h4>Sua mão</h4>
@@ -1626,7 +1687,8 @@
         <h4>Salas novas</h4>
         <p>Ao abrir a porta de uma sala nova (ou ao descer de andar) você pode descartar cartas e então compra ${this.game.config.refillDraw}, sem passar do limite de ${this.game.config.handMax} na mão. Se a porta foi aberta com soma exata, você ainda ganha mais uma carta de graça.</p>
         <h4>Atalhos</h4>
-        <p>Teclas 1–5 selecionam cartas da mão; Esc limpa a seleção; F liga/desliga a névoa; E liga/desliga os efeitos; M liga/desliga o som; + e − aproximam e afastam o mapa; C centraliza no personagem.</p>
+        <p>Teclas 1–5 selecionam cartas da mão; Esc limpa a seleção; F liga/desliga a névoa; E liga/desliga os efeitos; M liga/desliga o som; A alterna a arte de pixel art; + e − aproximam e afastam o mapa; C centraliza no personagem.</p>
+        ${this.artAvailable ? '<p class="muted">Arte do mapa, dos inimigos e do herói: pixel art de <b>Pixel_Poem</b> (pixel-poem.itch.io).</p>' : ''}
         <div class="actions"><button class="btn primary" data-ov="close-help">Entendi</button></div>
       </div>`;
     }
