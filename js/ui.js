@@ -38,6 +38,9 @@
   // Inimigo no mapa: carinha com chifres. As cartas que faltam derrubar ficam embaixo.
   const ENEMY_SVG = `<svg class="enemy" viewBox="0 0 32 32" aria-hidden="true"><path d="M7 12 L4 2 L13 8 Z M25 12 L28 2 L19 8 Z" fill="#cfc8dc" stroke="#2a0f0f" stroke-width="1.5" stroke-linejoin="round" /><circle cx="16" cy="17" r="10" fill="#8a2f2f" stroke="#2a0f0f" stroke-width="2" /><circle cx="12.3" cy="15.5" r="2.3" fill="#ffd76a" /><circle cx="19.7" cy="15.5" r="2.3" fill="#ffd76a" /><path d="M10.5 21.5 L12.8 25 L15 21.5 L17 25 L19.2 21.5 L21.5 25" fill="none" stroke="#f6f0e4" stroke-width="1.6" stroke-linejoin="round" /></svg>`;
 
+  // Ícone de pergaminho enrolado (slot bloqueado).
+  const SCROLL_SVG = `<svg class="scroll-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h11a2 2 0 0 1 2 2V16a3 3 0 0 0 3 3H9a3 3 0 0 1-3-3V5a1.5 1.5 0 0 1 1-1.5z" fill="#e8dcc0" stroke="#6b4e22" stroke-width="1.3" stroke-linejoin="round" /><path d="M6 5a2 2 0 1 0-2 2h2M9 19a3 3 0 0 1-3-3" fill="none" stroke="#6b4e22" stroke-width="1.3" stroke-linecap="round" /><path d="M10 8h7M10 11h7M10 14h5" stroke="#a88a52" stroke-width="1.2" stroke-linecap="round" /></svg>`;
+
   function miniHTML(card) {
     return `<span class="mini ${isRed(card.suit) ? 'red' : 'black'}"><b>${DC.rankLabel(card.rank)}</b><i>${sym(card.suit)}</i></span>`;
   }
@@ -80,6 +83,7 @@
         floor: $('hud-floor'),
         seed: $('hud-seed'),
         fx: $('fx'),
+        stash: $('stash'),
       };
       this.sel = [];
       this.busy = false;
@@ -106,6 +110,8 @@
       this.lowDeckOn = false;
       this.foeHit = false;
       this.revealIds = []; // cartas do inimigo que acabaram de desvirar (animação)
+      this.newSlot = -1; // slot que acabou de ser liberado por um pergaminho (animação)
+      this.fxEnter = null; // de onde a carta que volta do slot "sai" (padrão: a pilha do deck)
       this.handReset = true; // a primeira mão é "dada" com animação, sem comparar com a anterior
       this.lastCounts = null;
       this.fxExit = null; // para onde as cartas gastas voam (padrão: o descarte)
@@ -188,6 +194,10 @@
       this.el.hand.addEventListener('click', (e) => {
         const card = e.target.closest('.card');
         if (card) this.toggleCard(card.dataset.id);
+      });
+      this.el.stash.addEventListener('click', (e) => {
+        const slot = e.target.closest('.stash-slot');
+        if (slot) this.onSlotClick(slot);
       });
       this.el.hand.addEventListener('mousemove', (e) => this.tiltCard(e));
       this.el.hand.addEventListener('mouseout', (e) => {
@@ -652,6 +662,10 @@
           this.floatText('sem compra', c.x, c.y - rect.height * 0.3, 'muted');
         }
         if (res.kind === 'chest') this.burst(c.x, c.y, { count: 12, color: '#e7b84a', spread: 64 });
+        if (res.scroll) {
+          this.burst(c.x, c.y, { count: 20, color: '#f6e7b4', spread: 80 });
+          this.floatText('Pergaminho de Inventário!', c.x, c.y - rect.height * 0.7, 'gold');
+        }
       }, 240);
     }
 
@@ -850,6 +864,7 @@
       this.sound('hit');
       if (res.exact) this.sound('ding', 0.12);
       this.foeHit = !res.victory; // o inimigo se encolhe ao levar o golpe
+      if (res.scroll) this.newSlot = g.slotsOpen - 1;
       if (res.revealed.length && !res.victory) {
         this.revealIds = res.revealed; // a carta de costas desvira
         this.sound('draw', 0.25);
@@ -863,7 +878,11 @@
           const c = centerOf(at);
           this.ring(c.x, c.y);
           this.burst(c.x, c.y, { count: 22, spread: 70 });
-          this.floatText(res.reward ? 'Vitória! +1 carta' : 'Vitória!', c.x, c.y - at.height * 0.4, 'gold');
+          this.floatText(res.scroll ? 'Vitória! Pergaminho de Inventário' : res.reward ? 'Vitória! +1 carta' : 'Vitória!', c.x, c.y - at.height * 0.4, 'gold');
+          if (res.scroll) {
+            this.burst(c.x, c.y, { count: 20, color: '#f6e7b4', spread: 90 });
+            this.sound('scroll', 0.5);
+          }
         }
       } else if (rect) {
         const c = centerOf(rect);
@@ -972,9 +991,11 @@
         this.fxOrigin = { x, y };
         this.fxHold = res.exact || res.kind === 'chest' ? 750 : 350;
         this.sel = [];
+        if (res.scroll) this.newSlot = this.game.slotsOpen - 1;
         this.renderAll();
         this.openFx(res, rect);
         this.openSound(res);
+        if (res.scroll) this.sound('scroll', 0.4);
         return;
       }
       // No toque, o primeiro toque numa casa alcançável mostra o caminho e o segundo anda:
@@ -1051,6 +1072,8 @@
     }
 
     onOverlayClick(e) {
+      const slot = e.target.closest('.stash-slot');
+      if (slot) return this.onSlotClick(slot);
       // Poderes, coringa e "limpar seleção" dentro da janela de combate usam o mesmo código do painel.
       if (e.target.closest('[data-act], [data-joker]')) return this.onPanelClick(e);
       const btn = e.target.closest('[data-ov]');
@@ -1143,6 +1166,7 @@
       this.el.seed.textContent = `seed ${g.seed}`;
       this.renderPiles();
       this.renderHand();
+      this.renderStash();
       this.renderPanel();
       this.renderLog();
       this.syncTension();
@@ -1185,6 +1209,78 @@
       const g = this.game;
       if (card.suit === 'H') return Math.min(card.rank, g.discard.length);
       return Math.min(card.rank, g.config.handMax - (g.hand.length - 1), g.playerDeck.length);
+    }
+
+    // ---------- inventário (slots do Pergaminho de Inventário) ----------
+
+    // Os slots: bloqueados (ainda sem pergaminho), livres (+) ou com uma carta guardada.
+    slotsInner() {
+      const g = this.game;
+      let html = '';
+      for (let i = 0; i < g.config.maxSlots; i++) {
+        const fresh = i === this.newSlot ? ' fresh' : '';
+        if (i < g.stash.length) {
+          const card = g.stash[i];
+          html += `<div class="stash-slot filled${fresh}" data-slot="${i}" data-id="${card.id}" title="${label(card)} guardada: toque para devolver à mão">${cardHTML(card, { small: true, extra: 'static' })}</div>`;
+        } else if (i < g.slotsOpen) {
+          html += `<div class="stash-slot open${fresh}" data-slot="${i}" title="Slot livre: escolha 1 carta da mão e toque aqui para guardá-la"><b>+</b></div>`;
+        } else {
+          html += `<div class="stash-slot locked" data-slot="${i}" title="Bloqueado: ache um Pergaminho de Inventário (inimigos e baús)">${SCROLL_SVG}</div>`;
+        }
+      }
+      return html;
+    }
+
+    renderStash() {
+      const g = this.game;
+      this.el.stash.innerHTML = `<div class="stash-label">Inventário ${g.slotsOpen ? `${g.stash.length}/${g.slotsOpen}` : 'bloqueado'}</div><div class="stash-row">${this.slotsInner()}</div>`;
+      this.newSlot = -1;
+    }
+
+    // Os slots também aparecem dentro das janelas (reposição, baú e combate), onde a mão fica coberta.
+    stashModalHTML() {
+      const g = this.game;
+      if (!g.slotsOpen) return '';
+      return `<h4>Inventário ${g.stash.length}/${g.slotsOpen} · guardar em vez de descartar</h4><div class="stash-row modal-stash">${this.slotsInner()}</div>`;
+    }
+
+    // Qual carta da mão vai para um slot livre: a marcada para descartar (reposição e baú) ou
+    // a única carta escolhida.
+    slotCandidate() {
+      const g = this.game;
+      if (g.pending && (g.pending.type === 'refill' || g.pending.type === 'chest')) {
+        return [...this.discard].find((id) => g.hand.some((c) => c.id === id)) || null;
+      }
+      return this.sel.length === 1 ? this.sel[0] : null;
+    }
+
+    onSlotClick(el) {
+      const g = this.game;
+      if (this.busy || !g.canStore()) return;
+      const rect = el.getBoundingClientRect();
+      if (el.dataset.id) {
+        // Slot com carta: devolve para a mão.
+        const res = g.unstashCard(el.dataset.id);
+        if (!res.ok) return this.reject(res.error);
+        this.fxEnter = rect;
+        this.sound('draw');
+        this.renderAll();
+        return;
+      }
+      if (el.classList.contains('locked')) {
+        return this.toast('Slot bloqueado: derrote inimigos ou abra baús para achar um Pergaminho de Inventário.');
+      }
+      const id = this.slotCandidate();
+      if (!id) {
+        const modal = g.pending && (g.pending.type === 'refill' || g.pending.type === 'chest');
+        return this.toast(modal ? 'Marque 1 carta da mão e toque no slot: ela é guardada em vez de descartada.' : 'Escolha 1 carta da mão e toque no slot para guardá-la.');
+      }
+      const res = g.stashCard(id);
+      if (!res.ok) return this.reject(res.error);
+      this.discard.delete(id);
+      this.fxExit = { rect };
+      this.sound('stash');
+      this.renderAll();
     }
 
     // Texto do emblema de uma carta da mão: o que ela faz de verdade (♦ dobra ao andar,
@@ -1258,7 +1354,9 @@
 
       const step = this.fxDrawStep;
       this.fxDrawStep = 0;
-      const deck = fx ? this.pileRect(0) : null;
+      const source = this.fxEnter;
+      this.fxEnter = null;
+      const deck = fx ? source || this.pileRect(0) : null;
       let drawn = 0;
       for (const node of nodes) {
         const was = before.get(node.dataset.id);
@@ -1580,6 +1678,7 @@
         <h2>${title}</h2>
         <p>Marque as cartas que quer <b>descartar</b> (se quiser) e você compra <b>${g.config.refillDraw} ${g.config.refillDraw === 1 ? 'carta' : 'cartas'}</b>, sem passar do limite de ${g.config.handMax} na mão.</p>
         <div class="cardrow">${g.hand.length ? this.handRow('toggle-discard', this.discard) : '<p class="muted">Sua mão está vazia.</p>'}</div>
+        ${this.stashModalHTML()}
         <div class="summary">Descartando ${out.length} · comprando ${draws} · mão final ${keep + draws}/${g.config.handMax} · deck: ${g.playerDeck.length}</div>
         <div class="actions"><button class="btn primary" data-ov="confirm-refill">Repor mão</button></div>
       </div>`;
@@ -1630,6 +1729,7 @@
         <div class="cardrow enemy-row">${enemyRow}</div>
         <h4>Sua mão</h4>
         <div class="cardrow">${handRow || '<p class="muted">Sua mão está vazia.</p>'}</div>
+        ${this.stashModalHTML()}
         <div class="combat-sel">${cards.length ? selHTML : '<p class="muted">Escolha cartas da mão. Poderes de ♥ e ♠ funcionam aqui.</p>'}</div>
         <div class="actions">
           <button class="btn ${last && pick ? 'danger' : ''}" data-ov="flee" ${pick ? '' : 'disabled'}>${fleeLabel}</button>
@@ -1658,6 +1758,7 @@
         <div class="cardrow${deal}">${optionRow || '<p class="muted">Seu deck está vazio.</p>'}</div>
         <h4>Sua mão ${finalHand > g.config.handMax ? '· está cheia: marque cartas para descartar' : '(marque para descartar, se quiser)'}</h4>
         <div class="cardrow">${g.hand.length ? this.handRow('toggle-discard', this.discard) : '<p class="muted">Sua mão está vazia.</p>'}</div>
+        ${this.stashModalHTML()}
         <div class="summary">Levando ${picks.length} · descartando ${out.length} · mão final ${finalHand}/${g.config.handMax}</div>
         <div class="actions"><button class="btn primary" data-ov="confirm-chest" ${valid ? '' : 'disabled'}>${picks.length ? `Levar ${picks.length} carta(s)` : 'Não levar nada'}</button></div>
       </div>`;
@@ -1704,6 +1805,8 @@
         <p>Os botões + e − no canto do mapa (ou as teclas + e −) aproximam e afastam. Com zoom perto, o mapa acompanha o seu personagem; em 100% você vê a masmorra inteira. Para olhar outras salas, <b>arraste o mapa</b> (em qualquer ponto, inclusive na parte escura). O botão ◎ ao lado do zoom (ou a tecla C) volta para o personagem, e a câmera também volta sozinha quando ele anda.</p>
         <h4>Inimigos</h4>
         <p>Um inimigo parado guarda uma sala, com <b>2 cartas</b> (<b>3 nos andares mais fundos</b>, os de foice e de manto): cada uma é como o custo de uma porta, mas <b>uma delas começa virada de costas</b> e só aparece quando você derruba outra. Há uma <b>zona vermelha</b> ao redor: a maioria tem 1 casa de alcance, mas <b>uns 30% têm alcance 2</b> e podem trancar a sala, aí só dá para passar lutando (ou fugindo). Os inimigos gastam as cartas que sobram no deck da dungeon depois das portas e dos baús, então o contador "Cartas da dungeon" mostra o que ainda cobra algo (portas, baús e cartas de inimigos). Se o seu caminho entra na zona, o movimento é cortado e começa o <b>combate</b>: escolha cartas da mão cuja soma seja pelo menos o custo de uma carta dele e derrube-a (soma exata compra 1 carta); os poderes de ♥ e ♠ funcionam ali. Derrotando as 2 cartas você vence e compra 1 carta. Dá para <b>fugir</b> descartando 1 carta (você volta para fora da zona e as cartas já derrubadas continuam derrubadas), mas se for a sua última carta você perde.</p>
+        <h4>Pergaminho de Inventário</h4>
+        <p>Cada inimigo tem <b>30% de chance</b> de deixar um pergaminho <b>no lugar da carta de vitória</b>, e <b>30% dos baús</b> o guardam <b>no lugar das cartas</b>. Cada pergaminho abre um <b>slot</b> ao lado da mão (até 3), onde você <b>guarda cartas</b> para usar depois. Para guardar, escolha 1 carta da mão e toque num slot livre (na reposição e no baú, marque a carta e toque no slot: ela é guardada em vez de descartada). Toque na carta guardada para devolvê-la à mão. Guardar e devolver é grátis, a qualquer momento, até em combate, mas para <b>usar</b> a carta ela precisa estar na mão (o limite de 5 continua). Se a mão esvaziar mas houver cartas nos slots, você ainda não perdeu.</p>
         <h4>No iPad (toque)</h4>
         <p>Toque numa carta para escolher (toque de novo para soltar). Toque numa casa dourada para <b>ver o caminho</b> e toque <b>de novo na mesma casa</b> para andar, assim um toque errado não gasta a carta. Toque numa porta ou baú ao seu lado para abrir. <b>Arraste o mapa com o dedo</b> para olhar outras salas; o botão ◎ volta para o personagem.</p>
         <h4>Salas novas</h4>

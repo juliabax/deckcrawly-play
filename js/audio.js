@@ -126,6 +126,16 @@
       [1568, 2093, 1760].forEach((freq, i) => b.tone(t + i * 0.05, { freq, dur: 0.3, type: 'triangle', gain: 0.09 }));
     },
 
+    // inventário: guardar uma carta e achar um Pergaminho de Inventário
+    stash: (b, t) => {
+      b.tone(t, { freq: 520, to: 780, dur: 0.07, type: 'triangle', gain: 0.12 });
+      b.noise(t, { dur: 0.07, type: 'bandpass', freq: 2600, to: 1400, q: 0.8, gain: 0.2 });
+    },
+    scroll: (b, t) => {
+      [523, 659, 784, 1047, 1319].forEach((freq, i) => b.tone(t + i * 0.07, { freq, dur: 0.4, type: 'triangle', gain: 0.1 }));
+      b.noise(t + 0.2, { dur: 0.5, type: 'highpass', freq: 5000, gain: 0.05 });
+    },
+
     // combate
     combat: (b, t) => {
       b.tone(t, { freq: 110, to: 80, dur: 0.2, type: 'sawtooth', gain: 0.1 });

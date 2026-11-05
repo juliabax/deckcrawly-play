@@ -21,6 +21,9 @@
     enemyWideChance: 0.3, // chance de um inimigo ter o alcance maior (enemyWideRange) e tentar trancar a sala
     enemyWideRange: 2,
     enemyHidden: 1, // cartas do inimigo viradas de costas (aparecem quando você derruba outra)
+    // Pergaminho de Inventário: cada um abre 1 slot ao lado da mão, onde se guardam cartas.
+    maxSlots: 3,
+    scrollChance: 0.3, // chance de um inimigo (no lugar da carta de vitória) ou de um baú (no lugar das cartas) dar um pergaminho
   };
 
   const fail = (error) => ({ ok: false, error });
@@ -36,6 +39,8 @@
       this.dungeonDeck = this.rng.shuffle(DC.makeDeck('d'));
       this.hand = [];
       this.discard = [];
+      this.slotsOpen = 0; // slots de inventário liberados por pergaminhos (até maxSlots)
+      this.stash = []; // cartas guardadas nos slots
       this.jokerCopy = {};
 
       this.status = 'playing'; // playing | won | lost
@@ -85,6 +90,24 @@
         this.floors.push(DC.generateFloor(this.rng, this.config, () => this.dungeonDraw()));
       }
       this.planEnemies();
+      this.planScrolls();
+    }
+
+    // Sorteia (pela seed) quais inimigos e baús guardam um Pergaminho de Inventário.
+    planScrolls() {
+      for (const floor of this.floors) {
+        for (const enemy of floor.enemies) enemy.scroll = this.rng.next() < this.config.scrollChance;
+        for (const chest of floor.chests) chest.scroll = this.rng.next() < this.config.scrollChance;
+      }
+    }
+
+    // Entrega um pergaminho (mais um slot). Falso se os slots já estão no máximo: aí quem
+    // o guardava dá a recompensa normal.
+    grantScroll() {
+      if (this.slotsOpen >= this.config.maxSlots) return false;
+      this.slotsOpen++;
+      this.log(`Pergaminho de Inventário! Você ganha um slot (${this.slotsOpen}/${this.config.maxSlots}).`, 'good');
+      return true;
     }
 
     // Distribui as sobras do deck da dungeon em inimigos. As cartas mais baixas vão para os
@@ -248,8 +271,39 @@
       return this.floor.enemies.find((e) => e.id === this.pending.enemyId) || null;
     }
 
+    // Com a mão vazia mas cartas nos slots ainda dá para agir: é só tirar uma carta do slot.
     hasAnyAction() {
-      return this.hand.length > 0;
+      return this.hand.length > 0 || this.stash.length > 0;
+    }
+
+    // ---------- inventário (slots do pergaminho) ----------
+
+    // Guardar e tirar cartas é grátis e vale a qualquer momento (até em combate e nas janelas).
+    canStore() {
+      return this.status === 'playing';
+    }
+
+    stashCard(cardId) {
+      if (!this.canStore()) return fail('Não dá para guardar cartas agora.');
+      const card = this.hand.find((c) => c.id === cardId);
+      if (!card) return fail('Essa carta não está na mão.');
+      if (this.slotsOpen === 0) return fail('Você ainda não tem slots: ache um Pergaminho de Inventário.');
+      if (this.stash.length >= this.slotsOpen) return fail('Todos os seus slots estão ocupados.');
+      this.hand = this.hand.filter((c) => c !== card);
+      this.stash.push(card);
+      this.afterAction();
+      return { ok: true };
+    }
+
+    // Uma carta guardada só é usada depois de voltar para a mão (o limite da mão continua valendo).
+    unstashCard(cardId) {
+      if (!this.canStore()) return fail('Não dá para pegar cartas agora.');
+      const card = this.stash.find((c) => c.id === cardId);
+      if (!card) return fail('Essa carta não está guardada.');
+      if (this.hand.length >= this.config.handMax) return fail('Sua mão está cheia: libere um espaço antes de pegar a carta guardada.');
+      this.stash = this.stash.filter((c) => c !== card);
+      this.hand.push(card);
+      return { ok: true };
     }
 
     afterAction() {
@@ -388,14 +442,19 @@
         }
       }
 
+      let scroll = false;
       if (target.kind === 'chest') {
-        const pool = this.playerDeck.slice();
-        this.rng.shuffle(pool);
-        this.pending = { type: 'chest', options: pool.slice(0, this.config.chestOptions) };
-        this.log('O baú mostra algumas cartas do seu deck. Escolha até 2.', 'good');
+        if (target.obj.scroll && this.grantScroll()) {
+          scroll = true; // o baú guarda um pergaminho no lugar das cartas
+        } else {
+          const pool = this.playerDeck.slice();
+          this.rng.shuffle(pool);
+          this.pending = { type: 'chest', options: pool.slice(0, this.config.chestOptions) };
+          this.log('O baú mostra algumas cartas do seu deck. Escolha até 2.', 'good');
+        }
       }
       this.afterAction();
-      return { ok: true, exact, drawn, kind: target.kind };
+      return { ok: true, exact, drawn, kind: target.kind, scroll };
     }
 
     resolveChest(pickIds, discardIds) {
@@ -495,15 +554,22 @@
 
       let victory = false;
       let reward = 0;
+      let scroll = false;
       if (enemy.down.length === enemy.cards.length) {
         victory = true;
         enemy.dead = true;
         this.pending = null;
-        reward = this.draw(1);
-        this.log(`Inimigo derrotado!${reward ? ' Você compra uma carta pela vitória.' : ''}`, 'good');
+        // Às vezes o inimigo deixa um Pergaminho de Inventário no lugar da carta de recompensa.
+        if (enemy.scroll && this.grantScroll()) {
+          scroll = true;
+          this.log('Inimigo derrotado! Ele deixa um Pergaminho de Inventário.', 'good');
+        } else {
+          reward = this.draw(1);
+          this.log(`Inimigo derrotado!${reward ? ' Você compra uma carta pela vitória.' : ''}`, 'good');
+        }
       }
       this.afterAction();
-      return { ok: true, exact, drawn, victory, reward, revealed, enemyId: enemy.id, cardId: target.id };
+      return { ok: true, exact, drawn, victory, reward, scroll, revealed, enemyId: enemy.id, cardId: target.id };
     }
 
     // Foge do combate descartando 1 carta da mão (a escolhida). Volta para a casa de

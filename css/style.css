@@ -1463,6 +1463,143 @@ html.art .foe {
   animation: none;
 }
 
+/* ---------- inventário (Pergaminho de Inventário) ---------- */
+
+.handbar {
+  align-items: flex-end;
+  gap: 28px;
+}
+
+.stash {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 10px;
+}
+
+.stash-label {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.stash-row {
+  display: flex;
+  gap: 8px;
+}
+
+.stash-slot {
+  position: relative;
+  width: 60px;
+  height: 84px;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--line);
+  border-radius: 8px;
+  user-select: none;
+}
+
+.stash-slot.locked {
+  border-style: solid;
+  background: rgba(0, 0, 0, 0.25);
+  cursor: help;
+}
+
+.stash-slot .scroll-ico {
+  width: 60%;
+  opacity: 0.35;
+  filter: grayscale(0.6);
+}
+
+.stash-slot.open {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(231, 184, 74, 0.07);
+  cursor: pointer;
+}
+
+.stash-slot.open b {
+  font-size: 26px;
+  font-weight: 400;
+}
+
+.stash-slot.filled {
+  border: 2px solid var(--accent);
+  background: var(--paper);
+  cursor: pointer;
+}
+
+.stash-slot .card {
+  --cw: 56px;
+  box-shadow: none;
+  transform: none !important;
+  rotate: none;
+}
+
+.stash-slot.fresh {
+  animation: slotpop 1s ease-out;
+}
+
+@keyframes slotpop {
+  0% {
+    transform: scale(0.4);
+    box-shadow: 0 0 0 0 rgba(255, 215, 106, 0.9);
+  }
+  45% {
+    transform: scale(1.18);
+    box-shadow: 0 0 22px 6px rgba(255, 215, 106, 0.7);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(255, 215, 106, 0);
+  }
+}
+
+.touch .stash-slot {
+  width: 66px;
+  height: 92px;
+}
+
+.touch .stash-slot .card {
+  --cw: 62px;
+}
+
+/* nas janelas (reposição, baú e combate) */
+.modal-stash {
+  justify-content: center;
+  margin: 4px 0 8px;
+}
+
+.no-fx .stash-slot.fresh {
+  animation: none;
+}
+
+@media (min-width: 600px) and (max-width: 900px) and (min-height: 700px) {
+  .handbar {
+    gap: 14px;
+  }
+
+  .stash-slot {
+    width: 54px;
+    height: 76px;
+  }
+
+  .stash-slot .card {
+    --cw: 50px;
+  }
+
+  .touch .stash-slot {
+    width: 58px;
+    height: 80px;
+  }
+
+  .touch .stash-slot .card {
+    --cw: 54px;
+  }
+}
+
 /* ---------- efeitos da leva 2 ---------- */
 
 .spark.glyph {
