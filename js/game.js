@@ -23,6 +23,7 @@
     enemyHidden: 1, // cartas do inimigo viradas de costas (aparecem quando você derruba outra)
     // Pergaminho de Inventário: cada um abre 1 slot ao lado da mão, onde se guardam cartas.
     maxSlots: 3,
+    startSlots: 1, // slots de inventário já liberados no começo (de brinde)
     scrollChance: 0.3, // chance de um inimigo (no lugar da carta de vitória) ou de um baú (no lugar das cartas) dar um pergaminho
   };
 
@@ -39,7 +40,7 @@
       this.dungeonDeck = this.rng.shuffle(DC.makeDeck('d'));
       this.hand = [];
       this.discard = [];
-      this.slotsOpen = 0; // slots de inventário liberados por pergaminhos (até maxSlots)
+      this.slotsOpen = Math.min(this.config.startSlots, this.config.maxSlots); // slots liberados: o de brinde mais os dos pergaminhos (até maxSlots)
       this.stash = []; // cartas guardadas nos slots
       this.jokerCopy = {};
 
