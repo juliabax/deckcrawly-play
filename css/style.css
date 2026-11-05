@@ -1094,6 +1094,142 @@ html:not(.touch) .no-fx .hand .card:hover {
   display: none;
 }
 
+/* ---------- inimigos e combate ---------- */
+
+/* zona de ataque: as casas em volta do inimigo ficam avermelhadas */
+.tile.zone {
+  background-image: linear-gradient(rgba(214, 70, 70, 0.34), rgba(214, 70, 70, 0.34));
+  box-shadow: inset 0 0 0 1px rgba(255, 120, 120, 0.35);
+}
+
+.tile.t-enemy {
+  background-image: linear-gradient(rgba(214, 70, 70, 0.5), rgba(214, 70, 70, 0.5));
+}
+
+.tile .enemy {
+  position: absolute;
+  left: 14%;
+  top: -4%;
+  width: 72%;
+  height: 72%;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+}
+
+.enemy-cards {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 2%;
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+}
+
+.t-enemy .mini {
+  width: calc(var(--tile) * 0.4);
+  height: calc(var(--tile) * 0.52);
+  font-size: calc(var(--tile) * 0.22);
+  border-radius: 3px;
+}
+
+/* o caminho vai ser cortado aqui: começa um combate */
+.tile.fight {
+  outline: 3px solid var(--bad);
+  outline-offset: -3px;
+}
+
+.tile.fight::before {
+  content: '⚔';
+  position: absolute;
+  z-index: 2;
+  font-size: calc(var(--tile) * 0.55);
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 0 6px var(--bad), 0 2px 4px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+}
+
+/* janela de combate */
+.modal.combat h2 {
+  color: var(--bad);
+}
+
+.cardrow.enemy-row {
+  padding: 8px 0 14px;
+}
+
+.enemy-card {
+  box-shadow: 0 0 0 3px #7c2d2d, 0 6px 14px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
+
+.enemy-card.no {
+  opacity: 0.8;
+}
+
+.enemy-card.ok {
+  box-shadow: 0 0 0 3px var(--good), 0 6px 14px rgba(0, 0, 0, 0.5);
+}
+
+.enemy-card.exact {
+  box-shadow: 0 0 0 3px var(--accent), 0 0 18px rgba(231, 184, 74, 0.55);
+}
+
+.enemy-card.down {
+  cursor: default;
+  opacity: 0.45;
+  filter: grayscale(1) brightness(0.8);
+  transform: rotate(-7deg) scale(0.92);
+  box-shadow: none;
+}
+
+.combat-sel {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.combat-sel h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.btn.danger {
+  border-color: var(--bad);
+  color: #ffb4b4;
+}
+
+.floater.bad {
+  color: #ff8a8a;
+  font-size: 18px;
+}
+
+/* deck do jogador acabando */
+.pile.low {
+  border-color: var(--bad);
+  animation: lowdeck 1.3s ease-in-out infinite;
+}
+
+.pile.low b {
+  color: #ff8a8a;
+}
+
+@keyframes lowdeck {
+  50% {
+    box-shadow: 0 0 14px rgba(235, 87, 87, 0.55);
+  }
+}
+
+.no-fx .pile.low {
+  animation: none;
+}
+
 /* ---------- efeitos da leva 2 ---------- */
 
 .spark.glyph {

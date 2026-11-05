@@ -267,6 +267,52 @@
     throw new Error('Não foi possível gerar o andar');
   }
 
+  // Inimigo vivo cuja zona de ataque (distância em cruz até `range`) inclui a casa.
+  function enemyAt(floor, x, y) {
+    if (!floor.enemies) return null;
+    return floor.enemies.find((e) => !e.dead && Math.abs(e.x - x) + Math.abs(e.y - y) <= e.range) || null;
+  }
+
+  // Casas da zona de ataque de um inimigo (só as que existem no mapa).
+  function enemyZone(floor, enemy) {
+    const cells = [];
+    for (let dy = -enemy.range; dy <= enemy.range; dy++) {
+      for (let dx = -enemy.range; dx <= enemy.range; dx++) {
+        if (Math.abs(dx) + Math.abs(dy) > enemy.range) continue;
+        const cell = cellAt(floor, enemy.x + dx, enemy.y + dy);
+        if (cell) cells.push({ x: enemy.x + dx, y: enemy.y + dy, cell });
+      }
+    }
+    return cells;
+  }
+
+  // Escolhe onde ficam os inimigos: salas comuns (nunca a inicial, a da saída ou a do
+  // tesouro) e casas livres cuja zona não pegue portas, escadas, baú nem a casa logo
+  // depois de uma porta. Assim entrar numa sala é sempre livre e o combate é opcional
+  // para quem não passa por perto. Devolve [{ x, y, room, range }] (pode ser menos que
+  // `count` se não houver lugar).
+  function placeEnemies(rng, floor, count, range) {
+    const spots = [];
+    const rooms = rng.shuffle(floor.rooms.filter((r) => r.kind === 'normal'));
+    for (const room of rooms) {
+      if (spots.length >= count) break;
+      const candidates = [];
+      for (let y = room.y; y < room.y + room.h; y++) {
+        for (let x = room.x; x < room.x + room.w; x++) {
+          if (floor.grid[y][x].type !== 'floor') continue;
+          const zone = enemyZone(floor, { x, y, range });
+          const clear = zone.every(({ x: zx, y: zy, cell }) => {
+            if (cell.type === 'wall' || cell.type === 'void') return true;
+            return cell.type === 'floor' && !doorAdjacent(floor, zx, zy);
+          });
+          if (clear) candidates.push({ x, y });
+        }
+      }
+      if (candidates.length) spots.push({ ...rng.pick(candidates), room: room.id, range });
+    }
+    return spots;
+  }
+
   function isWalkable(cell) {
     if (!cell) return false;
     if (cell.type === 'floor' || cell.type === 'start' || cell.type === 'exit') return true;
@@ -326,5 +372,5 @@
     return targets;
   }
 
-  Object.assign(DC, { generateFloor, cellAt, reach, pathTo, adjacentTargets, DIRS });
+  Object.assign(DC, { generateFloor, cellAt, reach, pathTo, adjacentTargets, placeEnemies, enemyAt, enemyZone, DIRS });
 })(typeof window !== 'undefined' ? window : globalThis);

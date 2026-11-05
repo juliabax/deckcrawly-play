@@ -126,6 +126,26 @@
       [1568, 2093, 1760].forEach((freq, i) => b.tone(t + i * 0.05, { freq, dur: 0.3, type: 'triangle', gain: 0.09 }));
     },
 
+    // combate
+    combat: (b, t) => {
+      b.tone(t, { freq: 110, to: 80, dur: 0.2, type: 'sawtooth', gain: 0.1 });
+      b.tone(t + 0.18, { freq: 110, to: 70, dur: 0.25, type: 'sawtooth', gain: 0.1 });
+      b.noise(t, { dur: 0.35, type: 'bandpass', freq: 400, to: 1500, q: 1, gain: 0.5 });
+    },
+    hit: (b, t) => {
+      b.noise(t, { dur: 0.08, type: 'highpass', freq: 3000, gain: 0.14 });
+      b.tone(t, { freq: 220, to: 110, dur: 0.12, type: 'triangle', gain: 0.13 });
+      b.tone(t + 0.01, { freq: 1400, dur: 0.15, type: 'square', gain: 0.03 });
+    },
+    victory: (b, t) => {
+      [523, 659, 784, 1047].forEach((freq, i) => b.tone(t + i * 0.09, { freq, dur: 0.4, type: 'triangle', gain: 0.12 }));
+      [523, 784].forEach((freq) => b.tone(t + 0.4, { freq, dur: 0.7, gain: 0.07 }));
+    },
+    flee: (b, t) => {
+      b.noise(t, { dur: 0.3, type: 'bandpass', freq: 2500, to: 500, q: 1, gain: 0.32 });
+      b.tone(t, { freq: 400, to: 200, dur: 0.25, type: 'triangle', gain: 0.08 });
+    },
+
     // momentos grandes
     stairs: (b, t) => {
       b.noise(t, { dur: 0.7, type: 'lowpass', freq: 1200, to: 150, gain: 0.18 });

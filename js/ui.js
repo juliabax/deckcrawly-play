@@ -35,6 +35,9 @@
     <g class="lid"><path d="M10 30 Q48 -6 86 30 Z" fill="#c9923a" stroke="#4a2f0d" stroke-width="3" stroke-linejoin="round" /><path d="M24 24 Q48 4 72 24" fill="none" stroke="#e7b84a" stroke-width="3" stroke-linecap="round" /></g>
   </svg>`;
 
+  // Inimigo no mapa: carinha com chifres. As cartas que faltam derrubar ficam embaixo.
+  const ENEMY_SVG = `<svg class="enemy" viewBox="0 0 32 32" aria-hidden="true"><path d="M7 12 L4 2 L13 8 Z M25 12 L28 2 L19 8 Z" fill="#cfc8dc" stroke="#2a0f0f" stroke-width="1.5" stroke-linejoin="round" /><circle cx="16" cy="17" r="10" fill="#8a2f2f" stroke="#2a0f0f" stroke-width="2" /><circle cx="12.3" cy="15.5" r="2.3" fill="#ffd76a" /><circle cx="19.7" cy="15.5" r="2.3" fill="#ffd76a" /><path d="M10.5 21.5 L12.8 25 L15 21.5 L17 25 L19.2 21.5 L21.5 25" fill="none" stroke="#f6f0e4" stroke-width="1.6" stroke-linejoin="round" /></svg>`;
+
   function miniHTML(card) {
     return `<span class="mini ${isRed(card.suit) ? 'red' : 'black'}"><b>${DC.rankLabel(card.rank)}</b><i>${sym(card.suit)}</i></span>`;
   }
@@ -52,9 +55,12 @@
       <div class="corner br"><b>${lbl}</b><i>${s}</i></div>${badge}</div>`;
   }
 
+  const remainingEnemyCards = (enemy) => enemy.cards.filter((c) => !enemy.down.includes(c.id));
+
   // O zoom é um múltiplo do tamanho que faz a masmorra inteira caber na tela.
   const ZOOMS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3];
   const DEFAULT_ZOOM = 3; // índice em ZOOMS: 1.75x
+  const LOW_DECK = 5; // com tantas cartas ou menos, o deck do jogador pisca como aviso
   const PAN_GAP = 3; // folga escura (em casas) que dá para arrastar além da borda do mapa
 
   class UI {
@@ -89,6 +95,7 @@
       this.sfx = new DC.Sfx();
       this.syncSoundButton();
       this.tensionOn = false;
+      this.lowDeckOn = false;
       this.handReset = true; // a primeira mão é "dada" com animação, sem comparar com a anterior
       this.lastCounts = null;
       this.fxExit = null; // para onde as cartas gastas voam (padrão: o descarte)
@@ -380,13 +387,25 @@
       return document.documentElement.classList.contains('touch');
     }
 
-    // Prévia do caminho até uma casa (no mouse vem do hover; no toque, do primeiro toque).
-    showPath(x, y) {
+    // Prévia do caminho até uma casa. Se ele passa pela zona de um inimigo, é cortado
+    // na primeira casa da zona, que ganha a marca de combate (⚔).
+    previewPath(x, y) {
       this.clearPath();
       const f = this.game.floor;
-      if (!this.reachMap || !this.reachMap.has(y * f.w + x)) return;
-      for (const p of DC.pathTo(f, this.reachMap, x, y)) this.tileEls[p.y * f.w + p.x].classList.add('path');
-      this.tileEls[y * f.w + x].classList.add('path-end');
+      if (!this.reachMap || !this.reachMap.has(y * f.w + x)) return null;
+      const cut = this.game.cutPath(DC.pathTo(f, this.reachMap, x, y));
+      for (const p of cut.path) this.tileEls[p.y * f.w + p.x].classList.add('path');
+      const last = cut.path[cut.path.length - 1];
+      if (cut.enemy) this.tileEls[last.y * f.w + last.x].classList.add('fight');
+      return cut;
+    }
+
+    // No toque, o primeiro toque mostra o caminho (a casa final ganha um contorno).
+    showPath(x, y) {
+      const cut = this.previewPath(x, y);
+      if (!cut) return;
+      const last = cut.path[cut.path.length - 1];
+      this.tileEls[last.y * this.game.floor.w + last.x].classList.add('path-end');
     }
 
     // ---------- som ----------
@@ -500,7 +519,7 @@
     // Jogada recusada: as cartas escolhidas balançam.
     shakeSelection() {
       if (!this.fxOn) return;
-      for (const node of this.el.hand.querySelectorAll('.card.sel')) {
+      for (const node of document.querySelectorAll('#hand .card.sel, #overlay .card.sel')) {
         node.animate(
           [{ translate: '0 0' }, { translate: '-7px 0' }, { translate: '7px 0' }, { translate: '-4px 0' }, { translate: '3px 0' }, { translate: '0 0' }],
           { duration: 320, easing: 'ease-out' },
@@ -769,6 +788,56 @@
       }, 260);
     }
 
+    // Ataca uma carta do inimigo com as cartas escolhidas.
+    doAttack(enemyCardId, el) {
+      if (this.busy || !this.game.canFight()) return;
+      const g = this.game;
+      const enemy = g.combatEnemy();
+      const rect = el ? el.getBoundingClientRect() : null;
+      const res = g.attack(this.sel, enemyCardId);
+      if (!res.ok) return this.reject(res.error);
+      this.sel = [];
+      this.sound('hit');
+      if (res.exact) this.sound('ding', 0.12);
+      this.renderAll();
+      if (res.victory) {
+        const tile = this.tileEls[enemy.y * g.floor.w + enemy.x];
+        const at = tile ? tile.getBoundingClientRect() : rect;
+        this.sound('victory', 0.2);
+        if (at) {
+          const c = centerOf(at);
+          this.ring(c.x, c.y);
+          this.burst(c.x, c.y, { count: 22, spread: 70 });
+          this.floatText(res.reward ? 'Vitória! +1 carta' : 'Vitória!', c.x, c.y - at.height * 0.4, 'gold');
+        }
+      } else if (rect) {
+        const c = centerOf(rect);
+        this.burst(c.x, c.y, { count: res.exact ? 16 : 8, color: res.exact ? '#ffd76a' : '#ff8095', spread: 46 });
+        if (res.exact && res.drawn) this.floatText('+1 carta', c.x, c.y - rect.height * 0.35, 'gold');
+      }
+    }
+
+    // Foge descartando a carta escolhida.
+    doFlee() {
+      if (this.busy || !this.game.canFight()) return;
+      if (this.sel.length !== 1) return this.toast('Escolha 1 carta da mão para descartar e fugir.');
+      const res = this.game.flee(this.sel[0]);
+      if (!res.ok) return this.reject(res.error);
+      this.sel = [];
+      this.sound('flee');
+      this.renderAll();
+    }
+
+    // Efeito de quando o combate começa (o movimento foi cortado na zona).
+    combatStartFx() {
+      this.sound('combat');
+      if (!this.fxOn || !this.token) return;
+      const c = centerOf(this.token.getBoundingClientRect());
+      this.ring(c.x, c.y, '#ff6b6b');
+      this.burst(c.x, c.y, { count: 12, color: '#ff6b6b', spread: 54 });
+      this.floatText('⚔ Combate!', c.x, c.y - 28, 'bad');
+    }
+
     // Poucas cartas na mão: a borda da tela pulsa em vermelho.
     syncTension() {
       const g = this.game;
@@ -781,7 +850,7 @@
     }
 
     toggleCard(id) {
-      if (this.busy || !this.game.canAct()) return;
+      if (this.busy || !(this.game.canAct() || this.game.canFight())) return;
       const at = this.sel.indexOf(id);
       if (at >= 0) this.sel.splice(at, 1);
       else this.sel.push(id);
@@ -793,6 +862,7 @@
       this.renderHand();
       this.renderPanel();
       this.updateHighlights();
+      if (this.game.inCombat()) this.renderOverlay();
     }
 
     onPanelClick(e) {
@@ -896,6 +966,10 @@
       }
       await sleep(80);
       this.el.map.style.removeProperty('--step');
+      if (res.combat) {
+        this.combatStartFx();
+        await sleep(this.fxOn ? 500 : 0);
+      }
       if (res.descended && this.game.status === 'playing') this.sound('stairs');
       if (res.descended && this.game.status === 'playing' && this.fxOn) {
         await this.floorVeil(() => {
@@ -914,18 +988,16 @@
       if (!this.reachMap || this.busy || this.dragging) return;
       const tile = e.target.closest('.tile');
       if (!tile) return;
-      const f = this.game.floor;
-      const x = Number(tile.dataset.x);
-      const y = Number(tile.dataset.y);
-      if (!this.reachMap.has(y * f.w + x)) return;
-      for (const p of DC.pathTo(f, this.reachMap, x, y)) this.tileEls[p.y * f.w + p.x].classList.add('path');
+      this.previewPath(Number(tile.dataset.x), Number(tile.dataset.y));
     }
 
     clearPath() {
-      for (const el of this.el.map.querySelectorAll('.path, .path-end')) el.classList.remove('path', 'path-end');
+      for (const el of this.el.map.querySelectorAll('.path, .path-end, .fight')) el.classList.remove('path', 'path-end', 'fight');
     }
 
     onOverlayClick(e) {
+      // Poderes, coringa e "limpar seleção" dentro da janela de combate usam o mesmo código do painel.
+      if (e.target.closest('[data-act], [data-joker]')) return this.onPanelClick(e);
       const btn = e.target.closest('[data-ov]');
       if (!btn) {
         if (this.help && e.target === this.el.overlay) {
@@ -940,6 +1012,15 @@
         case 'close-help':
           this.help = false;
           this.renderOverlay();
+          break;
+        case 'combat-toggle':
+          this.toggleCard(id);
+          break;
+        case 'attack':
+          this.doAttack(id, btn);
+          break;
+        case 'flee':
+          this.doFlee();
           break;
         case 'toggle-discard':
           if (this.discard.has(id)) this.discard.delete(id);
@@ -1014,8 +1095,9 @@
       const top = g.discard[g.discard.length - 1];
       const pile = (name, count, stack) =>
         `<div class="pile"><div class="stack">${stack}</div><b>${count}</b>${name}</div>`;
+      const lowDeck = g.status === 'playing' && g.playerDeck.length <= LOW_DECK;
       this.el.piles.innerHTML =
-        pile('Seu deck (vida)', g.playerDeck.length, g.playerDeck.length ? '<div class="card back small"></div>' : '<div class="empty"></div>') +
+        pile(lowDeck ? 'Deck acabando!' : 'Seu deck (vida)', g.playerDeck.length, g.playerDeck.length ? '<div class="card back small"></div>' : '<div class="empty"></div>') +
         pile('Descarte', g.discard.length, top ? cardHTML(top, { small: true, extra: 'static' }) : '<div class="empty"></div>') +
         pile('Deck da dungeon', g.dungeonDeck.length, g.dungeonDeck.length ? '<div class="card back dungeon small"></div>' : '<div class="empty"></div>');
 
@@ -1032,6 +1114,10 @@
         });
       }
       this.lastCounts = counts;
+      this.el.piles.children[0].classList.toggle('low', lowDeck);
+      // Uma batida de coração só na hora em que o deck fica perigosamente baixo.
+      if (lowDeck && !this.lowDeckOn) this.sound('heartbeat');
+      this.lowDeckOn = lowDeck;
     }
 
     // Quantas cartas o poder de ♥ (devolver) ou ♠ (comprar) mexeria agora.
@@ -1039,6 +1125,19 @@
       const g = this.game;
       if (card.suit === 'H') return Math.min(card.rank, g.discard.length);
       return Math.min(card.rank, g.config.handMax - (g.hand.length - 1), g.playerDeck.length);
+    }
+
+    // Texto do emblema de uma carta da mão: o que ela faz de verdade (♦ dobra ao andar,
+    // ♣ copia, ♥ devolve e ♠ compra, já limitados pelo descarte, pelo deck e pela mão).
+    cardBadge(card) {
+      const g = this.game;
+      if (card.suit === 'D') return `anda ${card.rank * 2}`;
+      if (card.suit === 'C') {
+        const copied = g.jokerTarget(card);
+        return copied ? `copia ${copied.rank}` : `vale ${card.rank}`;
+      }
+      if (card.suit === 'H') return `deck +${this.powerCount(card)}`;
+      return `compra ${this.powerCount(card)}`;
     }
 
     // A mão reaproveita os elementos das cartas que continuam nela (assim as
@@ -1075,15 +1174,7 @@
         const selected = this.sel.includes(card.id);
         // Mostra sempre o que a carta faz de verdade: ♦ dobra ao andar, ♣ copia,
         // ♥ devolve e ♠ compra (já limitado pelo descarte, pelo deck e pela mão).
-        let badge = '';
-        if (card.suit === 'D') badge = `anda ${card.rank * 2}`;
-        else if (card.suit === 'C') {
-          const copied = g.jokerTarget(card);
-          badge = copied ? `copia ${copied.rank}` : `vale ${card.rank}`;
-        }
-        else if (card.suit === 'H') badge = `deck +${this.powerCount(card)}`;
-        else if (card.suit === 'S') badge = `compra ${this.powerCount(card)}`;
-        const next = htmlToEl(cardHTML(card, { selected, badge }));
+        const next = htmlToEl(cardHTML(card, { selected, badge: this.cardBadge(card) }));
         let node = old.get(card.id);
         if (node) {
           node.className = next.className;
@@ -1126,32 +1217,23 @@
       this.el.log.innerHTML = recent.map((l) => `<div class="${l.kind}">${l.text}</div>`).join('');
     }
 
-    renderPanel() {
+    // Seleção atual: soma, cartas, poderes de ♥/♠ e a escolha do coringa. No combate não
+    // mostra o texto de andar.
+    selectionHTML(combat) {
       const g = this.game;
-      const panel = this.el.panel;
-      if (g.status !== 'playing') {
-        panel.innerHTML = '<h3>Fim de jogo</h3>';
-        return;
-      }
       const cards = g.handCards(this.sel) || [];
-      if (!cards.length) {
-        panel.innerHTML = `<h3>Sua vez</h3>
-          <p>Selecione cartas da mão:</p>
-          <p class="muted">• <b>1 carta</b> anda (${this.isTouch() ? 'toque numa casa dourada para ver o caminho e de novo para andar' : 'clique numa casa dourada'}) ou usa o poder do naipe.<br>
-          • <b>Cartas somadas</b> abrem portas e baús ao seu lado.</p>`;
-        return;
-      }
-
       const sum = g.selectionSum(this.sel);
       let html = `<h3>Seleção · soma ${sum}</h3><div class="row">${cards.map(miniChip).join('')}</div>`;
 
       if (cards.length === 1) {
         const c = cards[0];
-        const range = g.walkRange(c);
-        let why = '';
-        if (c.suit === 'D') why = ` (${c.rank} × 2 do ♦)`;
-        else if (c.suit === 'C' && g.jokerTarget(c)) why = ` (coringa copia ${label(g.jokerTarget(c))})`;
-        html += `<p><b>Andar:</b> até ${range} casa(s)${why}.</p>`;
+        if (!combat) {
+          const range = g.walkRange(c);
+          let why = '';
+          if (c.suit === 'D') why = ` (${c.rank} × 2 do ♦)`;
+          else if (c.suit === 'C' && g.jokerTarget(c)) why = ` (coringa copia ${label(g.jokerTarget(c))})`;
+          html += `<p><b>Andar:</b> até ${range} casa(s)${why}.</p>`;
+        }
         if (c.suit === 'H') {
           const n = this.powerCount(c);
           html += `<button class="btn" data-act="power" ${n ? '' : 'disabled'}>Usar ♥: devolver ${n} carta(s) do descarte ao deck</button>`;
@@ -1172,6 +1254,27 @@
           )
           .join('')}</div>`;
       }
+      return { html, sum, cards };
+    }
+
+    renderPanel() {
+      const g = this.game;
+      const panel = this.el.panel;
+      if (g.status !== 'playing') {
+        panel.innerHTML = '<h3>Fim de jogo</h3>';
+        return;
+      }
+      const cards = g.handCards(this.sel) || [];
+      if (!cards.length) {
+        panel.innerHTML = `<h3>Sua vez</h3>
+          <p>Selecione cartas da mão:</p>
+          <p class="muted">• <b>1 carta</b> anda (${this.isTouch() ? 'toque numa casa dourada para ver o caminho e de novo para andar' : 'clique numa casa dourada'}) ou usa o poder do naipe.<br>
+          • <b>Cartas somadas</b> abrem portas e baús ao seu lado.</p>`;
+        return;
+      }
+
+      const { html: selHTML, sum } = this.selectionHTML(false);
+      let html = selHTML;
 
       const targets = g.adjacentTargets();
       if (!targets.length) {
@@ -1231,9 +1334,20 @@
             case 'wall':
               cls = 't-wall';
               break;
-            case 'floor':
+            case 'floor': {
               cls = `t-floor${alt}${treasure}`;
+              const enemy = (f.enemies || []).find((e) => !e.dead && e.x === x && e.y === y);
+              if (enemy) {
+                const left = remainingEnemyCards(enemy);
+                cls += ' t-enemy zone';
+                inner = ENEMY_SVG + `<span class="enemy-cards">${left.map(miniHTML).join('')}</span>`;
+                title = `Inimigo (${left.length} carta${left.length === 1 ? '' : 's'}): entrar na zona vermelha começa um combate`;
+              } else if (DC.enemyAt(f, x, y)) {
+                cls += ' zone';
+                title = 'Zona de ataque: entrar aqui começa um combate';
+              }
               break;
+            }
             case 'start':
               cls = 't-floor start';
               inner = '▲';
@@ -1323,7 +1437,7 @@
       this.tapTile = null;
       const g = this.game;
       const f = g.floor;
-      for (const el of this.tileEls) el.classList.remove('reach', 'path', 'path-end', 'open-ok', 'open-exact', 'open-no', 'open-hint');
+      for (const el of this.tileEls) el.classList.remove('reach', 'path', 'path-end', 'fight', 'open-ok', 'open-exact', 'open-no', 'open-hint');
       this.reachMap = null;
       if (g.status !== 'playing' || g.pending || this.busy) return;
 
@@ -1361,6 +1475,7 @@
       else if (kind === 'lost') html = this.endHTML(false);
       else if (kind === 'refill') html = this.refillHTML();
       else if (kind === 'chest') html = this.chestHTML();
+      else if (kind === 'combat') html = this.combatHTML();
 
       root.hidden = !html;
       root.innerHTML = html;
@@ -1394,6 +1509,49 @@
         <div class="cardrow">${g.hand.length ? this.handRow('toggle-discard', this.discard) : '<p class="muted">Sua mão está vazia.</p>'}</div>
         <div class="summary">Descartando ${out.length} · comprando ${draws} · mão final ${keep + draws}/${g.config.handMax} · deck: ${g.playerDeck.length}</div>
         <div class="actions"><button class="btn primary" data-ov="confirm-refill">Repor mão</button></div>
+      </div>`;
+    }
+
+    // Combate: cartas do inimigo em cima (cada uma é como uma porta), sua mão embaixo.
+    combatHTML() {
+      const g = this.game;
+      const enemy = g.combatEnemy();
+      const { html: selHTML, sum, cards } = this.selectionHTML(true);
+      const enemyRow = enemy.cards
+        .map((c) => {
+          const down = enemy.down.includes(c.id);
+          let state = '';
+          let badge = `custo ${c.rank}`;
+          if (down) badge = 'derrotada';
+          else if (cards.length) {
+            state = sum === c.rank ? ' exact' : sum > c.rank ? ' ok' : ' no';
+            badge = sum === c.rank ? 'soma exata · +1 carta' : sum > c.rank ? 'derruba' : `faltam ${c.rank - sum}`;
+          }
+          const html = cardHTML(c, { badge, extra: `enemy-card${down ? ' down' : ''}${state}` });
+          return down ? html : html.replace('class="card', 'data-ov="attack" class="card');
+        })
+        .join('');
+      const handRow = g.hand
+        .map((c) =>
+          cardHTML(c, { selected: this.sel.includes(c.id), badge: this.cardBadge(c) }).replace('class="card', 'data-ov="combat-toggle" class="card'),
+        )
+        .join('');
+      const last = g.hand.length === 1;
+      const pick = cards.length === 1 ? cards[0] : null;
+      const fleeLabel = pick
+        ? `Fugir descartando ${label(pick)}${last ? ' (é a sua última carta: você perde)' : ''}`
+        : 'Fugir (escolha 1 carta para descartar)';
+      return `<div class="modal combat">
+        <h2>⚔ Combate!</h2>
+        <p>${this.isTouch() ? 'Toque' : 'Escolha'} em cartas da mão cuja <b>soma</b> seja pelo menos o custo de <b>uma</b> carta do inimigo e ${this.isTouch() ? 'toque' : 'clique'} nela para derrubá-la. <b>Soma exata</b> compra 1 carta. Derrotando as ${enemy.cards.length} cartas você vence e compra 1 carta.</p>
+        <div class="cardrow enemy-row">${enemyRow}</div>
+        <h4>Sua mão</h4>
+        <div class="cardrow">${handRow || '<p class="muted">Sua mão está vazia.</p>'}</div>
+        <div class="combat-sel">${cards.length ? selHTML : '<p class="muted">Escolha cartas da mão. Poderes de ♥ e ♠ funcionam aqui.</p>'}</div>
+        <div class="actions">
+          <button class="btn ${last && pick ? 'danger' : ''}" data-ov="flee" ${pick ? '' : 'disabled'}>${fleeLabel}</button>
+          <button class="btn" data-act="clear" ${cards.length ? '' : 'disabled'}>Limpar seleção</button>
+        </div>
       </div>`;
     }
 
@@ -1461,6 +1619,8 @@
         <p>Você só enxerga a sala em que está e as salas cujas portas já abriu. Não dá para saber onde fica a escada de saída: é preciso gastar cartas explorando. O botão "Névoa" no topo (ou a tecla F) liga e desliga, útil para testar.</p>
         <h4>Zoom</h4>
         <p>Os botões + e − no canto do mapa (ou as teclas + e −) aproximam e afastam. Com zoom perto, o mapa acompanha o seu personagem; em 100% você vê a masmorra inteira. Para olhar outras salas, <b>arraste o mapa</b> (em qualquer ponto, inclusive na parte escura). O botão ◎ ao lado do zoom (ou a tecla C) volta para o personagem, e a câmera também volta sozinha quando ele anda.</p>
+        <h4>Inimigos</h4>
+        <p>Um inimigo parado guarda uma sala, com <b>2 cartas</b> (cada uma é como o custo de uma porta) e uma <b>zona vermelha</b> ao redor. Se o seu caminho entra na zona, o movimento é cortado e começa o <b>combate</b>: escolha cartas da mão cuja soma seja pelo menos o custo de uma carta dele e derrube-a (soma exata compra 1 carta); os poderes de ♥ e ♠ funcionam ali. Derrotando as 2 cartas você vence e compra 1 carta. Dá para <b>fugir</b> descartando 1 carta (você volta para fora da zona e as cartas já derrubadas continuam derrubadas), mas se for a sua última carta você perde.</p>
         <h4>No iPad (toque)</h4>
         <p>Toque numa carta para escolher (toque de novo para soltar). Toque numa casa dourada para <b>ver o caminho</b> e toque <b>de novo na mesma casa</b> para andar, assim um toque errado não gasta a carta. Toque numa porta ou baú ao seu lado para abrir. <b>Arraste o mapa com o dedo</b> para olhar outras salas; o botão ◎ volta para o personagem.</p>
         <h4>Salas novas</h4>
