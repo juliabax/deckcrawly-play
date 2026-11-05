@@ -14,6 +14,7 @@
     enemyCards: 2, // cartas de cada inimigo (cada uma funciona como o custo de uma porta)
     enemyMaxRank: 9, // inimigo fácil: custos de até 9
     enemyRange: 1, // zona de ataque: casas em cruz ao redor dele
+    enemyHidden: 1, // cartas do inimigo viradas de costas (aparecem quando você derruba outra)
   };
 
   const fail = (error) => ({ ok: false, error });
@@ -82,12 +83,28 @@
       return cards;
     }
 
+    // Ids das cartas do inimigo que começam viradas de costas (sempre sobra ao menos uma à vista).
+    hiddenCards(cards) {
+      const count = Math.min(this.config.enemyHidden, cards.length - 1);
+      if (count <= 0) return [];
+      return this.rng.shuffle(cards.slice()).slice(0, count).map((c) => c.id);
+    }
+
     startFloor(n) {
       this.floorNo = n;
       this.floor = DC.generateFloor(this.rng, this.config, () => this.dungeonDraw());
-      this.floor.enemies = DC.placeEnemies(this.rng, this.floor, this.config.enemiesPerFloor, this.config.enemyRange).map(
-        (spot, id) => ({ id, ...spot, kind: ENEMY_KINDS[(this.floorNo - 1 + id) % ENEMY_KINDS.length], cards: this.enemyCards(), down: [], dead: false }),
-      );
+      this.floor.enemies = DC.placeEnemies(this.rng, this.floor, this.config.enemiesPerFloor, this.config.enemyRange).map((spot, id) => {
+        const cards = this.enemyCards();
+        return {
+          id,
+          ...spot,
+          kind: ENEMY_KINDS[(this.floorNo - 1 + id) % ENEMY_KINDS.length],
+          cards,
+          hidden: this.hiddenCards(cards),
+          down: [],
+          dead: false,
+        };
+      });
       this.player = { x: this.floor.start.x, y: this.floor.start.y };
       this.visited = new Set([this.floor.grid[this.player.y][this.player.x].room]);
       if (n > 1) {
@@ -388,6 +405,7 @@
       const enemy = this.combatEnemy();
       const target = enemy.cards.find((c) => c.id === enemyCardId && !enemy.down.includes(c.id));
       if (!target) return fail('Escolha uma carta do inimigo que ainda esteja de pé.');
+      if (enemy.hidden && enemy.hidden.includes(target.id)) return fail('Essa carta está virada de costas: derrube a outra primeiro.');
       const cards = this.handCards(cardIds);
       if (!cards || !cards.length) return fail('Escolha cartas da mão.');
 
@@ -408,6 +426,11 @@
         this.log(`Derruba a carta ${DC.rankLabel(cost)} gastando ${sum}, sem compra de volta.`);
       }
 
+      // Derrubar uma carta desvira as que estavam de costas.
+      const revealed = enemy.hidden ? enemy.hidden.filter((id) => !enemy.down.includes(id)) : [];
+      if (enemy.hidden) enemy.hidden = [];
+      if (revealed.length) this.log('A carta virada do inimigo é revelada!');
+
       let victory = false;
       let reward = 0;
       if (enemy.down.length === enemy.cards.length) {
@@ -418,7 +441,7 @@
         this.log(`Inimigo derrotado!${reward ? ' Você compra uma carta pela vitória.' : ''}`, 'good');
       }
       this.afterAction();
-      return { ok: true, exact, drawn, victory, reward, enemyId: enemy.id, cardId: target.id };
+      return { ok: true, exact, drawn, victory, reward, revealed, enemyId: enemy.id, cardId: target.id };
     }
 
     // Foge do combate descartando 1 carta da mão (a escolhida). Volta para a casa de

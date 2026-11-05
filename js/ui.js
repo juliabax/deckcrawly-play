@@ -56,6 +56,8 @@
   }
 
   const remainingEnemyCards = (enemy) => enemy.cards.filter((c) => !enemy.down.includes(c.id));
+  const isHiddenCard = (enemy, card) => Boolean(enemy.hidden) && enemy.hidden.includes(card.id);
+  const MINI_BACK = '<span class="mini back"></span>';
 
   // O zoom é um múltiplo do tamanho que faz a masmorra inteira caber na tela.
   const ZOOMS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3];
@@ -103,6 +105,7 @@
       this.tensionOn = false;
       this.lowDeckOn = false;
       this.foeHit = false;
+      this.revealIds = []; // cartas do inimigo que acabaram de desvirar (animação)
       this.handReset = true; // a primeira mão é "dada" com animação, sem comparar com a anterior
       this.lastCounts = null;
       this.fxExit = null; // para onde as cartas gastas voam (padrão: o descarte)
@@ -847,6 +850,10 @@
       this.sound('hit');
       if (res.exact) this.sound('ding', 0.12);
       this.foeHit = !res.victory; // o inimigo se encolhe ao levar o golpe
+      if (res.revealed.length && !res.victory) {
+        this.revealIds = res.revealed; // a carta de costas desvira
+        this.sound('draw', 0.25);
+      }
       this.renderAll();
       if (res.victory) {
         const tile = this.tileEls[enemy.y * g.floor.w + enemy.x];
@@ -1066,6 +1073,9 @@
           break;
         case 'attack':
           this.doAttack(id, btn);
+          break;
+        case 'hidden-card':
+          this.toast('Essa carta está virada de costas: derrube a outra primeiro.');
           break;
         case 'flee':
           this.doFlee();
@@ -1391,8 +1401,11 @@
               if (enemy) {
                 const left = remainingEnemyCards(enemy);
                 cls += ' t-enemy zone';
-                inner = (art ? `<i class="sprite enemy-sprite k-${enemy.kind}"></i>` : ENEMY_SVG) + `<span class="enemy-cards">${left.map(miniHTML).join('')}</span>`;
-                title = `Inimigo (${left.length} carta${left.length === 1 ? '' : 's'}): entrar na zona vermelha começa um combate`;
+                const facedown = left.filter((c) => isHiddenCard(enemy, c)).length;
+                inner =
+                  (art ? `<i class="sprite enemy-sprite k-${enemy.kind}"></i>` : ENEMY_SVG) +
+                  `<span class="enemy-cards">${left.map((c) => (isHiddenCard(enemy, c) ? MINI_BACK : miniHTML(c))).join('')}</span>`;
+                title = `Inimigo (${left.length} carta${left.length === 1 ? '' : 's'}${facedown ? `, ${facedown} virada${facedown === 1 ? '' : 's'}` : ''}): entrar na zona vermelha começa um combate`;
               } else if (DC.enemyAt(f, x, y)) {
                 cls += ' zone';
                 title = 'Zona de ataque: entrar aqui começa um combate';
@@ -1575,8 +1588,13 @@
       const g = this.game;
       const enemy = g.combatEnemy();
       const { html: selHTML, sum, cards } = this.selectionHTML(true);
+      const flipped = this.revealIds;
+      this.revealIds = [];
       const enemyRow = enemy.cards
         .map((c) => {
+          if (isHiddenCard(enemy, c)) {
+            return `<div class="card back dungeon enemy-card hidden" data-ov="hidden-card" data-id="${c.id}" title="Carta virada de costas"><span class="badge">virada</span></div>`;
+          }
           const down = enemy.down.includes(c.id);
           let state = '';
           let badge = `custo ${c.rank}`;
@@ -1585,7 +1603,7 @@
             state = sum === c.rank ? ' exact' : sum > c.rank ? ' ok' : ' no';
             badge = sum === c.rank ? 'soma exata · +1 carta' : sum > c.rank ? 'derruba' : `faltam ${c.rank - sum}`;
           }
-          const html = cardHTML(c, { badge, extra: `enemy-card${down ? ' down' : ''}${state}` });
+          const html = cardHTML(c, { badge, extra: `enemy-card${down ? ' down' : ''}${state}${flipped.includes(c.id) ? ' flip' : ''}` });
           return down ? html : html.replace('class="card', 'data-ov="attack" class="card');
         })
         .join('');
@@ -1604,7 +1622,9 @@
       return `<div class="modal combat">
         <h2>⚔ Combate!</h2>
         <div class="foe"><i class="sprite enemy-sprite k-${enemy.kind}${hit ? ' hit' : ''}"></i></div>
-        <p>${this.isTouch() ? 'Toque' : 'Escolha'} em cartas da mão cuja <b>soma</b> seja pelo menos o custo de <b>uma</b> carta do inimigo e ${this.isTouch() ? 'toque' : 'clique'} nela para derrubá-la. <b>Soma exata</b> compra 1 carta. Derrotando as ${enemy.cards.length} cartas você vence e compra 1 carta.</p>
+        <p>${this.isTouch() ? 'Toque' : 'Escolha'} em cartas da mão cuja <b>soma</b> seja pelo menos o custo de <b>uma</b> carta do inimigo e ${this.isTouch() ? 'toque' : 'clique'} nela para derrubá-la. <b>Soma exata</b> compra 1 carta. Derrotando as ${enemy.cards.length} cartas você vence e compra 1 carta.${
+          enemy.hidden && enemy.hidden.length ? ' Uma carta está <b>virada de costas</b>: ela aparece quando você derrubar a outra.' : ''
+        }</p>
         <div class="cardrow enemy-row">${enemyRow}</div>
         <h4>Sua mão</h4>
         <div class="cardrow">${handRow || '<p class="muted">Sua mão está vazia.</p>'}</div>
@@ -1681,7 +1701,7 @@
         <h4>Zoom</h4>
         <p>Os botões + e − no canto do mapa (ou as teclas + e −) aproximam e afastam. Com zoom perto, o mapa acompanha o seu personagem; em 100% você vê a masmorra inteira. Para olhar outras salas, <b>arraste o mapa</b> (em qualquer ponto, inclusive na parte escura). O botão ◎ ao lado do zoom (ou a tecla C) volta para o personagem, e a câmera também volta sozinha quando ele anda.</p>
         <h4>Inimigos</h4>
-        <p>Um inimigo parado guarda uma sala, com <b>2 cartas</b> (cada uma é como o custo de uma porta) e uma <b>zona vermelha</b> ao redor. Se o seu caminho entra na zona, o movimento é cortado e começa o <b>combate</b>: escolha cartas da mão cuja soma seja pelo menos o custo de uma carta dele e derrube-a (soma exata compra 1 carta); os poderes de ♥ e ♠ funcionam ali. Derrotando as 2 cartas você vence e compra 1 carta. Dá para <b>fugir</b> descartando 1 carta (você volta para fora da zona e as cartas já derrubadas continuam derrubadas), mas se for a sua última carta você perde.</p>
+        <p>Um inimigo parado guarda uma sala, com <b>2 cartas</b> (cada uma é como o custo de uma porta, mas <b>uma delas começa virada de costas</b> e só aparece quando você derruba a outra) e uma <b>zona vermelha</b> ao redor. Se o seu caminho entra na zona, o movimento é cortado e começa o <b>combate</b>: escolha cartas da mão cuja soma seja pelo menos o custo de uma carta dele e derrube-a (soma exata compra 1 carta); os poderes de ♥ e ♠ funcionam ali. Derrotando as 2 cartas você vence e compra 1 carta. Dá para <b>fugir</b> descartando 1 carta (você volta para fora da zona e as cartas já derrubadas continuam derrubadas), mas se for a sua última carta você perde.</p>
         <h4>No iPad (toque)</h4>
         <p>Toque numa carta para escolher (toque de novo para soltar). Toque numa casa dourada para <b>ver o caminho</b> e toque <b>de novo na mesma casa</b> para andar, assim um toque errado não gasta a carta. Toque numa porta ou baú ao seu lado para abrir. <b>Arraste o mapa com o dedo</b> para olhar outras salas; o botão ◎ volta para o personagem.</p>
         <h4>Salas novas</h4>
