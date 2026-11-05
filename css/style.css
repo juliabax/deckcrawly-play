@@ -1144,6 +1144,15 @@ html:not(.touch) .no-fx .hand .card:hover {
   gap: 2px;
 }
 
+/* inimigo de 3 cartas: as cartinhas ficam em leque para caber acima da cabeça */
+.enemy-cards.many {
+  gap: 0;
+}
+
+.enemy-cards.many .mini + .mini {
+  margin-left: calc(var(--tile) * -0.12);
+}
+
 .t-enemy .mini {
   width: calc(var(--tile) * 0.4);
   height: calc(var(--tile) * 0.52);

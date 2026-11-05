@@ -10,17 +10,18 @@
     roomsMin: 4,
     roomsMax: 6,
     loops: 1,
-    enemiesPerFloor: 1, // sentinelas por andar
-    enemyCards: 2, // cartas de cada inimigo (cada uma funciona como o custo de uma porta)
-    enemyMaxRank: 9, // inimigo fácil: custos de até 9
+    // Inimigos: gastam as cartas que sobram no deck da dungeon depois das portas e dos baús.
+    enemyCards: 2, // cartas de um inimigo comum (cada uma funciona como o custo de uma porta)
+    enemyDeepCards: 3, // cartas de um inimigo dos andares mais fundos
+    enemyDeepFloor: 4, // a partir deste andar aparecem os de enemyDeepCards
+    enemyMaxPerFloor: 3, // no máximo tantos inimigos por andar
+    enemyShare: 1, // fração das sobras do deck da dungeon que vira inimigos (1 = todas)
+    enemyRamp: 9, // mistura das cartas entre os andares: 0 = os andares de cima só pegam as mais baixas; quanto maior, mais misturado
     enemyRange: 1, // zona de ataque: casas em cruz ao redor dele
     enemyHidden: 1, // cartas do inimigo viradas de costas (aparecem quando você derruba outra)
   };
 
   const fail = (error) => ({ ok: false, error });
-
-  // Só aparência (a arte escolhe o desenho): um tipo de inimigo por andar, em rodízio.
-  const ENEMY_KINDS = ['skeleton1', 'skeleton2', 'vampire'];
 
   class Game {
     constructor(opts = {}) {
@@ -39,12 +40,14 @@
       this.pending = null; // { type: 'refill' | 'chest' | 'combat', ... }
       this.logs = [];
       this.floorNo = 0;
+      this.floors = []; // todos os andares, gerados no começo do jogo
       this.floor = null;
       this.player = null;
       this.visited = new Set();
 
       this.draw(this.config.handMax);
       this.log(`Você compra ${this.hand.length} cartas para começar.`);
+      this.generateDungeon();
       this.startFloor(1);
     }
 
@@ -71,16 +74,84 @@
       return this.dungeonDeck.pop();
     }
 
-    // Cartas de um inimigo: saem do deck da dungeon, escolhendo cartas de até enemyMaxRank
-    // (inimigo fácil). Se o deck já não tem nenhuma, usa a próxima carta que vier.
-    enemyCards() {
-      const cards = [];
-      while (cards.length < this.config.enemyCards) {
-        let i = this.dungeonDeck.length - 1;
-        while (i >= 0 && this.dungeonDeck[i].rank > this.config.enemyMaxRank) i--;
-        cards.push(i >= 0 ? this.dungeonDeck.splice(i, 1)[0] : this.dungeonDraw());
+    // Gera a masmorra inteira no começo: primeiro as portas e os baús de todos os andares (que
+    // pagam seus custos com cartas do deck da dungeon) e depois, com o que sobrou do deck,
+    // os inimigos. Assim a dungeon sempre cobra, no total, o valor de um deck completo.
+    generateDungeon() {
+      this.floors = [];
+      for (let n = 1; n <= this.config.floors; n++) {
+        this.floors.push(DC.generateFloor(this.rng, this.config, () => this.dungeonDraw()));
       }
-      return cards;
+      this.planEnemies();
+    }
+
+    // Distribui as sobras do deck da dungeon em inimigos. As cartas mais baixas vão para os
+    // andares de cima e as mais altas para os de baixo (a dificuldade sobe sozinha); os
+    // andares mais fundos têm os inimigos de 3 cartas e recebem inimigos primeiro.
+    planEnemies() {
+      const cfg = this.config;
+      const spots = this.floors.map((f) => DC.placeEnemies(this.rng, f, cfg.enemyMaxPerFloor, cfg.enemyRange));
+      const sizeAt = (floorNo) => (floorNo >= cfg.enemyDeepFloor ? cfg.enemyDeepCards : cfg.enemyCards);
+
+      const budget = Math.floor(this.dungeonDeck.length * cfg.enemyShare);
+      // Cada carta ganha uma folga aleatória no ordenamento (enemyRamp): a dificuldade sobe com o
+      // andar, mas sem os extremos de só ases e 2 em cima e só reis embaixo.
+      const pool = this.rng
+        .shuffle(this.dungeonDeck.slice())
+        .slice(0, budget)
+        .map((card) => ({ card, key: card.rank + (this.rng.next() * 2 - 1) * cfg.enemyRamp }))
+        .sort((a, b) => a.key - b.key)
+        .map((item) => item.card);
+
+      // Quantos inimigos, e de quantas cartas, em cada andar: rodadas do andar mais fundo ao mais raso.
+      const sizes = this.floors.map(() => []);
+      let left = pool.length;
+      const round = (size) => {
+        let placed = false;
+        for (let i = this.floors.length - 1; i >= 0; i--) {
+          const cards = size(i + 1);
+          if (sizes[i].length < spots[i].length && left >= cards) {
+            sizes[i].push(cards);
+            left -= cards;
+            placed = true;
+          }
+        }
+        return placed;
+      };
+      while (round(sizeAt)) {
+        /* repete até não caber mais */
+      }
+      while (round(() => cfg.enemyCards)) {
+        /* sobras pequenas viram inimigos de 2 cartas onde ainda houver lugar */
+      }
+
+      const used = new Set();
+      this.floors.forEach((floor, i) => {
+        floor.enemies = sizes[i].map((size, id) => {
+          const cards = pool.splice(0, size);
+          cards.forEach((c) => used.add(c.id));
+          return {
+            id,
+            ...spots[i][id],
+            kind: size >= cfg.enemyDeepCards ? ['skeleton2', 'vampire'][(i + id) % 2] : 'skeleton1', // só aparência
+            cards,
+            hidden: this.hiddenCards(cards),
+            down: [],
+            dead: false,
+          };
+        });
+      });
+      this.dungeonDeck = this.dungeonDeck.filter((c) => !used.has(c.id));
+    }
+
+    // Cartas da dungeon que ainda cobram algo: portas e baús fechados e cartas de inimigos de pé.
+    dungeonRemaining() {
+      let n = 0;
+      for (const f of this.floors) {
+        n += f.doors.filter((d) => !d.open).length + f.chests.filter((c) => !c.open).length;
+        for (const e of f.enemies) if (!e.dead) n += e.cards.length - e.down.length;
+      }
+      return n;
     }
 
     // Ids das cartas do inimigo que começam viradas de costas (sempre sobra ao menos uma à vista).
@@ -92,19 +163,7 @@
 
     startFloor(n) {
       this.floorNo = n;
-      this.floor = DC.generateFloor(this.rng, this.config, () => this.dungeonDraw());
-      this.floor.enemies = DC.placeEnemies(this.rng, this.floor, this.config.enemiesPerFloor, this.config.enemyRange).map((spot, id) => {
-        const cards = this.enemyCards();
-        return {
-          id,
-          ...spot,
-          kind: ENEMY_KINDS[(this.floorNo - 1 + id) % ENEMY_KINDS.length],
-          cards,
-          hidden: this.hiddenCards(cards),
-          down: [],
-          dead: false,
-        };
-      });
+      this.floor = this.floors[n - 1];
       this.player = { x: this.floor.start.x, y: this.floor.start.y };
       this.visited = new Set([this.floor.grid[this.player.y][this.player.x].room]);
       if (n > 1) {

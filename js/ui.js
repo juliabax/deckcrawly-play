@@ -1154,13 +1154,15 @@
       const pile = (name, count, stack) =>
         `<div class="pile"><div class="stack">${stack}</div><b>${count}</b>${name}</div>`;
       const lowDeck = g.status === 'playing' && g.playerDeck.length <= LOW_DECK;
+      // O deck da dungeon é gasto em portas, baús e inimigos: o contador mostra o que ainda cobra algo.
+      const dungeonLeft = g.dungeonRemaining();
       this.el.piles.innerHTML =
         pile(lowDeck ? 'Deck acabando!' : 'Seu deck (vida)', g.playerDeck.length, g.playerDeck.length ? '<div class="card back small"></div>' : '<div class="empty"></div>') +
         pile('Descarte', g.discard.length, top ? cardHTML(top, { small: true, extra: 'static' }) : '<div class="empty"></div>') +
-        pile('Deck da dungeon', g.dungeonDeck.length, g.dungeonDeck.length ? '<div class="card back dungeon small"></div>' : '<div class="empty"></div>');
+        pile('Cartas da dungeon', dungeonLeft, dungeonLeft ? '<div class="card back dungeon small"></div>' : '<div class="empty"></div>');
 
       // O contador "pula" quando muda. O do descarte espera a carta chegar.
-      const counts = [g.playerDeck.length, g.discard.length, g.dungeonDeck.length];
+      const counts = [g.playerDeck.length, g.discard.length, dungeonLeft];
       const delays = this.fxBumpDelay || [0, 0.26, 0];
       this.fxBumpDelay = null;
       if (this.fxOn && this.lastCounts) {
@@ -1404,7 +1406,7 @@
                 const facedown = left.filter((c) => isHiddenCard(enemy, c)).length;
                 inner =
                   (art ? `<i class="sprite enemy-sprite k-${enemy.kind}"></i>` : ENEMY_SVG) +
-                  `<span class="enemy-cards">${left.map((c) => (isHiddenCard(enemy, c) ? MINI_BACK : miniHTML(c))).join('')}</span>`;
+                  `<span class="enemy-cards${left.length > 2 ? ' many' : ''}">${left.map((c) => (isHiddenCard(enemy, c) ? MINI_BACK : miniHTML(c))).join('')}</span>`;
                 title = `Inimigo (${left.length} carta${left.length === 1 ? '' : 's'}${facedown ? `, ${facedown} virada${facedown === 1 ? '' : 's'}` : ''}): entrar na zona vermelha começa um combate`;
               } else if (DC.enemyAt(f, x, y)) {
                 cls += ' zone';
@@ -1701,7 +1703,7 @@
         <h4>Zoom</h4>
         <p>Os botões + e − no canto do mapa (ou as teclas + e −) aproximam e afastam. Com zoom perto, o mapa acompanha o seu personagem; em 100% você vê a masmorra inteira. Para olhar outras salas, <b>arraste o mapa</b> (em qualquer ponto, inclusive na parte escura). O botão ◎ ao lado do zoom (ou a tecla C) volta para o personagem, e a câmera também volta sozinha quando ele anda.</p>
         <h4>Inimigos</h4>
-        <p>Um inimigo parado guarda uma sala, com <b>2 cartas</b> (cada uma é como o custo de uma porta, mas <b>uma delas começa virada de costas</b> e só aparece quando você derruba a outra) e uma <b>zona vermelha</b> ao redor. Se o seu caminho entra na zona, o movimento é cortado e começa o <b>combate</b>: escolha cartas da mão cuja soma seja pelo menos o custo de uma carta dele e derrube-a (soma exata compra 1 carta); os poderes de ♥ e ♠ funcionam ali. Derrotando as 2 cartas você vence e compra 1 carta. Dá para <b>fugir</b> descartando 1 carta (você volta para fora da zona e as cartas já derrubadas continuam derrubadas), mas se for a sua última carta você perde.</p>
+        <p>Um inimigo parado guarda uma sala, com <b>2 cartas</b> (<b>3 nos andares mais fundos</b>, os de foice e de manto): cada uma é como o custo de uma porta, mas <b>uma delas começa virada de costas</b> e só aparece quando você derruba outra. Há uma <b>zona vermelha</b> ao redor. Os inimigos gastam as cartas que sobram no deck da dungeon depois das portas e dos baús, então o contador "Cartas da dungeon" mostra o que ainda cobra algo (portas, baús e cartas de inimigos). Se o seu caminho entra na zona, o movimento é cortado e começa o <b>combate</b>: escolha cartas da mão cuja soma seja pelo menos o custo de uma carta dele e derrube-a (soma exata compra 1 carta); os poderes de ♥ e ♠ funcionam ali. Derrotando as 2 cartas você vence e compra 1 carta. Dá para <b>fugir</b> descartando 1 carta (você volta para fora da zona e as cartas já derrubadas continuam derrubadas), mas se for a sua última carta você perde.</p>
         <h4>No iPad (toque)</h4>
         <p>Toque numa carta para escolher (toque de novo para soltar). Toque numa casa dourada para <b>ver o caminho</b> e toque <b>de novo na mesma casa</b> para andar, assim um toque errado não gasta a carta. Toque numa porta ou baú ao seu lado para abrir. <b>Arraste o mapa com o dedo</b> para olhar outras salas; o botão ◎ volta para o personagem.</p>
         <h4>Salas novas</h4>
