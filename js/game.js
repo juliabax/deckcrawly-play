@@ -18,6 +18,8 @@
     enemyShare: 1, // fração das sobras do deck da dungeon que vira inimigos (1 = todas)
     enemyRamp: 9, // mistura das cartas entre os andares: 0 = os andares de cima só pegam as mais baixas; quanto maior, mais misturado
     enemyRange: 1, // zona de ataque: casas em cruz ao redor dele
+    enemyWideChance: 0.3, // chance de um inimigo ter o alcance maior (enemyWideRange) e tentar trancar a sala
+    enemyWideRange: 2,
     enemyHidden: 1, // cartas do inimigo viradas de costas (aparecem quando você derruba outra)
   };
 
@@ -90,7 +92,8 @@
     // andares mais fundos têm os inimigos de 3 cartas e recebem inimigos primeiro.
     planEnemies() {
       const cfg = this.config;
-      const spots = this.floors.map((f) => DC.placeEnemies(this.rng, f, cfg.enemyMaxPerFloor, cfg.enemyRange));
+      const wide = { range: cfg.enemyWideRange, chance: cfg.enemyWideChance };
+      const spots = this.floors.map((f) => DC.placeEnemies(this.rng, f, cfg.enemyMaxPerFloor, cfg.enemyRange, wide));
       const sizeAt = (floorNo) => (floorNo >= cfg.enemyDeepFloor ? cfg.enemyDeepCards : cfg.enemyCards);
 
       const budget = Math.floor(this.dungeonDeck.length * cfg.enemyShare);

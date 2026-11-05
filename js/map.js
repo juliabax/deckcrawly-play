@@ -267,48 +267,98 @@
     throw new Error('Não foi possível gerar o andar');
   }
 
-  // Inimigo vivo cuja zona de ataque (distância em cruz até `range`) inclui a casa.
-  function enemyAt(floor, x, y) {
-    if (!floor.enemies) return null;
-    return floor.enemies.find((e) => !e.dead && Math.abs(e.x - x) + Math.abs(e.y - y) <= e.range) || null;
+  // Inimigo vivo cuja zona de ataque inclui a casa. A zona é a distância em cruz até `range`,
+  // mas só dentro da sala dele: não atravessa paredes para a sala ao lado.
+  function inZone(enemy, cell, x, y) {
+    if (!cell || (enemy.room !== undefined && cell.room !== enemy.room)) return false;
+    return Math.abs(enemy.x - x) + Math.abs(enemy.y - y) <= enemy.range;
   }
 
-  // Casas da zona de ataque de um inimigo (só as que existem no mapa).
+  function enemyAt(floor, x, y) {
+    if (!floor.enemies) return null;
+    const cell = cellAt(floor, x, y);
+    return floor.enemies.find((e) => !e.dead && inZone(e, cell, x, y)) || null;
+  }
+
+  // Casas da zona de ataque de um inimigo (as que existem no mapa e ficam na sala dele).
   function enemyZone(floor, enemy) {
     const cells = [];
     for (let dy = -enemy.range; dy <= enemy.range; dy++) {
       for (let dx = -enemy.range; dx <= enemy.range; dx++) {
-        if (Math.abs(dx) + Math.abs(dy) > enemy.range) continue;
-        const cell = cellAt(floor, enemy.x + dx, enemy.y + dy);
-        if (cell) cells.push({ x: enemy.x + dx, y: enemy.y + dy, cell });
+        const x = enemy.x + dx;
+        const y = enemy.y + dy;
+        const cell = cellAt(floor, x, y);
+        if (cell && inZone(enemy, cell, x, y)) cells.push({ x, y, cell });
       }
     }
     return cells;
   }
 
-  // Escolhe onde ficam os inimigos: salas comuns (nunca a inicial, a da saída ou a do
-  // tesouro) e casas livres cuja zona não pegue portas, escadas, baú nem a casa logo
-  // depois de uma porta. Assim entrar numa sala é sempre livre e o combate é opcional
-  // para quem não passa por perto. Devolve [{ x, y, room, range }] (pode ser menos que
-  // `count` se não houver lugar).
-  function placeEnemies(rng, floor, count, range) {
+  // A zona do inimigo corta a sala? Verdadeiro quando a sala tem 2 ou mais casas de entrada
+  // (casas encostadas numa porta) e, sem passar pela zona, não dá para ir de uma a outra.
+  function blocksRoom(floor, room, enemy) {
+    const zone = new Set(enemyZone(floor, enemy).map((z) => z.y * floor.w + z.x));
+    const entrances = [];
+    for (let y = room.y; y < room.y + room.h; y++) {
+      for (let x = room.x; x < room.x + room.w; x++) {
+        if (floor.grid[y][x].type === 'floor' && doorAdjacent(floor, x, y)) entrances.push({ x, y });
+      }
+    }
+    if (entrances.length < 2) return false;
+    const seen = new Set([entrances[0].y * floor.w + entrances[0].x]);
+    const queue = [entrances[0]];
+    while (queue.length) {
+      const cur = queue.shift();
+      for (const [dx, dy] of DIRS) {
+        const nx = cur.x + dx;
+        const ny = cur.y + dy;
+        const key = ny * floor.w + nx;
+        const cell = cellAt(floor, nx, ny);
+        if (!cell || cell.type !== 'floor' || cell.room !== room.id || seen.has(key) || zone.has(key)) continue;
+        seen.add(key);
+        queue.push({ x: nx, y: ny });
+      }
+    }
+    return !entrances.every((c) => seen.has(c.y * floor.w + c.x));
+  }
+
+  // Casas de uma sala onde um inimigo de alcance `range` pode ficar: a zona dele só pode
+  // pegar casas livres que não sejam a casa logo depois de uma porta (nem portas, escadas ou
+  // baú). Assim entrar numa sala é sempre livre.
+  function enemyCandidates(floor, room, range) {
+    const candidates = [];
+    for (let y = room.y; y < room.y + room.h; y++) {
+      for (let x = room.x; x < room.x + room.w; x++) {
+        if (floor.grid[y][x].type !== 'floor') continue;
+        const enemy = { x, y, room: room.id, range };
+        const clear = enemyZone(floor, enemy).every(({ x: zx, y: zy, cell }) => cell.type === 'floor' && !doorAdjacent(floor, zx, zy));
+        if (clear) candidates.push(enemy);
+      }
+    }
+    return candidates;
+  }
+
+  // Escolhe onde ficam os inimigos: salas comuns (nunca a inicial, a da saída ou a do tesouro),
+  // uma por inimigo. Uma parte deles (wide.chance) tem alcance maior (wide.range): quando a sala
+  // permite, ficam num ponto que corta a passagem entre as portas, e aí só dá para atravessar
+  // lutando (ou fugindo). Devolve [{ x, y, room, range, blocks }] (menos que `count` se faltar lugar).
+  function placeEnemies(rng, floor, count, range, wide = null) {
     const spots = [];
     const rooms = rng.shuffle(floor.rooms.filter((r) => r.kind === 'normal'));
     for (const room of rooms) {
       if (spots.length >= count) break;
-      const candidates = [];
-      for (let y = room.y; y < room.y + room.h; y++) {
-        for (let x = room.x; x < room.x + room.w; x++) {
-          if (floor.grid[y][x].type !== 'floor') continue;
-          const zone = enemyZone(floor, { x, y, range });
-          const clear = zone.every(({ x: zx, y: zy, cell }) => {
-            if (cell.type === 'wall' || cell.type === 'void') return true;
-            return cell.type === 'floor' && !doorAdjacent(floor, zx, zy);
-          });
-          if (clear) candidates.push({ x, y });
-        }
+      let pick = null;
+      if (wide && rng.next() < wide.chance) {
+        const options = enemyCandidates(floor, room, wide.range).map((e) => ({ ...e, blocks: blocksRoom(floor, room, e) }));
+        const blockers = options.filter((o) => o.blocks);
+        const pool = blockers.length ? blockers : options;
+        if (pool.length) pick = rng.pick(pool);
       }
-      if (candidates.length) spots.push({ ...rng.pick(candidates), room: room.id, range });
+      if (!pick) {
+        const options = enemyCandidates(floor, room, range);
+        if (options.length) pick = { ...rng.pick(options), blocks: false };
+      }
+      if (pick) spots.push(pick);
     }
     return spots;
   }
@@ -372,5 +422,5 @@
     return targets;
   }
 
-  Object.assign(DC, { generateFloor, cellAt, reach, pathTo, adjacentTargets, placeEnemies, enemyAt, enemyZone, DIRS });
+  Object.assign(DC, { generateFloor, cellAt, reach, pathTo, adjacentTargets, placeEnemies, enemyAt, enemyZone, blocksRoom, DIRS });
 })(typeof window !== 'undefined' ? window : globalThis);
