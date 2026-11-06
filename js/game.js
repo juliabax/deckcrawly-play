@@ -27,12 +27,23 @@
     scrollChance: 0.3, // chance de um inimigo (no lugar da carta de vitória) ou de um baú (no lugar das cartas) dar um pergaminho
   };
 
+  // Mão e custo da porta do andar de treino (ids do deck: p = jogador, d = dungeon).
+  const TUTORIAL_HAND = ['pS5', 'pD4', 'pH3', 'pC6', 'pS2'];
+  const TUTORIAL_DOOR = 'dC7';
+  // Andar 2 do treino: a mão, as cartas que saem do deck (na ordem), o descarte e o inimigo da escada.
+  // Ao descer, o jogo ganha ♠3 e ♥2 (a janela do andar), usa o ♠ para comprar ♥9 e ♠5, e só então luta.
+  const TUTORIAL2_HAND = ['pD4', 'pC3'];
+  const TUTORIAL2_TOP = ['pS3', 'pH2', 'pH9', 'pS5'];
+  const TUTORIAL2_DISCARD = ['pS6', 'pD7', 'pC8', 'pH5'];
+  const TUTORIAL2_ENEMY = ['dS5', 'dH3']; // a última começa virada de costas
+
   const fail = (error) => ({ ok: false, error });
 
   class Game {
     constructor(opts = {}) {
-      this.config = Object.assign({}, DEFAULT_CONFIG, opts.config);
-      this.seed = opts.seed !== undefined && opts.seed !== null ? opts.seed : Math.floor(Math.random() * 1e9);
+      this.tutorial = Boolean(opts.tutorial); // andar fixo de treino, sem seed
+      this.config = Object.assign({}, DEFAULT_CONFIG, opts.config, this.tutorial ? { floors: 2 } : null);
+      this.seed = this.tutorial ? 0 : opts.seed !== undefined && opts.seed !== null ? opts.seed : Math.floor(Math.random() * 1e9);
       this.rng = DC.makeRng(this.seed);
 
       // Dois decks separados: o do jogador (vida + mão) e o da dungeon.
@@ -53,10 +64,36 @@
       this.player = null;
       this.visited = new Set();
 
-      this.draw(this.config.handMax);
+      if (this.tutorial) {
+        this.arrangeTutorial();
+      } else {
+        this.draw(this.config.handMax);
+        this.generateDungeon();
+      }
       this.log(`Você compra ${this.hand.length} cartas para começar.`);
-      this.generateDungeon();
       this.startFloor(1);
+    }
+
+    // Tutorial: mão combinada, o andar fixo e uma porta que custa 7 (dá para pagar com 3+4 ou 5+2).
+    arrangeTutorial() {
+      const take = (deck, id) => deck.splice(deck.findIndex((c) => c.id === id), 1)[0];
+      for (const id of TUTORIAL_HAND) this.hand.push(take(this.playerDeck, id));
+      const cost = take(this.dungeonDeck, TUTORIAL_DOOR);
+      const foe = TUTORIAL2_ENEMY.map((id) => take(this.dungeonDeck, id));
+      this.floors = [DC.tutorialFloor(cost), DC.tutorialFloor2(foe)];
+    }
+
+    // Ao descer para o andar 2 do treino, a mão, o deck e o descarte voltam ao combinado (não importa
+    // como a pessoa jogou o andar 1): mão curta, descarte com o que o ♥ devolver e as cartas certas no topo.
+    arrangeTutorialFloor2() {
+      const all = [...this.hand, ...this.playerDeck, ...this.discard, ...this.stash];
+      this.stash = [];
+      this.jokerCopy = {};
+      const take = (id) => all.splice(all.findIndex((c) => c.id === id), 1)[0];
+      this.hand = TUTORIAL2_HAND.map(take);
+      const top = TUTORIAL2_TOP.map(take);
+      this.discard = TUTORIAL2_DISCARD.map(take);
+      this.playerDeck = [...all, ...top.reverse()]; // o fim da lista é o topo do deck
     }
 
     log(text, kind = 'info') {
@@ -194,7 +231,9 @@
       this.player = { x: this.floor.start.x, y: this.floor.start.y };
       this.visited = new Set([this.floor.grid[this.player.y][this.player.x].room]);
       if (n > 1) {
-        this.pending = { type: 'refill', reason: 'floor' };
+        // No treino, o andar 2 dá 2 cartas (♠ e ♥) para a pessoa aprender os poderes.
+        if (this.tutorial) this.arrangeTutorialFloor2();
+        this.pending = { type: 'refill', reason: 'floor', bonus: 0, draws: this.tutorial ? 2 : this.config.refillDraw };
         this.log(`Você desce para o andar ${n}.`, 'good');
       } else {
         this.log('Você entra na masmorra. Ache a escada de saída!', 'good');
@@ -422,25 +461,35 @@
       this.discard.push(...cards);
       target.obj.open = true;
 
-      const label = target.kind === 'door' ? 'a porta' : 'o baú';
-      let drawn = 0;
-      if (exact) {
-        drawn = this.draw(1);
-        this.log(`Soma exata! Abre ${label}${drawn ? ' e compra uma carta de graça' : ''}.`, 'good');
-      } else {
-        this.log(`Abre ${label} gastando ${sum} (custo ${cost}), sem compra de volta.`);
-      }
-
-      // A reposição da mão acontece logo depois de abrir a porta que dá numa
-      // sala nova, antes mesmo de você entrar nela.
+      // A compra da sala nova acontece logo depois de abrir a porta que dá numa sala ainda não
+      // visitada, antes mesmo de você entrar nela.
+      let newRoom = false;
       if (target.kind === 'door') {
         const here = this.floor.grid[this.player.y][this.player.x].room;
         const ahead = target.obj.a === here ? target.obj.b : target.obj.a;
         if (!this.visited.has(ahead)) {
           this.visited.add(ahead);
-          this.pending = { type: 'refill', reason: 'door' };
-          this.log('Sala nova à frente! Você pode repor a mão.', 'good');
+          newRoom = true;
         }
+      }
+
+      const label = target.kind === 'door' ? 'a porta' : 'o baú';
+      let drawn = 0;
+      let bonus = 0; // carta de graça da soma exata que fica para a janela da sala nova
+      if (exact) {
+        if (newRoom) {
+          bonus = 1;
+          this.log(`Soma exata! Abre ${label} e ganha uma carta de graça.`, 'good');
+        } else {
+          drawn = this.draw(1);
+          this.log(`Soma exata! Abre ${label}${drawn ? ' e compra uma carta de graça' : ''}.`, 'good');
+        }
+      } else {
+        this.log(`Abre ${label} gastando ${sum} (custo ${cost}), sem compra de volta.`);
+      }
+      if (newRoom) {
+        this.pending = { type: 'refill', reason: 'door', bonus };
+        this.log('Sala nova à frente! Você ganha cartas.', 'good');
       }
 
       let scroll = false;
@@ -589,19 +638,31 @@
       return { ok: true, lost: this.status === 'lost' };
     }
 
-    // ---------- reposição da mão ----------
+    // ---------- cartas da sala nova ----------
 
-    resolveRefill(discardIds) {
-      if (!this.pending || this.pending.type !== 'refill') return fail('Nada para repor.');
-      const discards = this.handCards(discardIds);
-      if (!discards) return fail('Descarte inválido.');
-      this.hand = this.hand.filter((c) => !discards.includes(c));
-      this.discard.push(...discards);
-      const drawn = this.draw(this.config.refillDraw);
+    // As cartas que a janela da sala nova vai dar, na ordem em que saem do deck: primeiro a de graça
+    // da soma exata (se houver), depois a da sala. Sem descartar nada, só entra o que cabe na mão.
+    // Não mexe em nada: serve para a janela mostrar as cartas antes de elas irem para a mão.
+    refillPreview() {
+      if (!this.pending || this.pending.type !== 'refill') return [];
+      const bonus = this.pending.bonus || 0;
+      const room = this.pending.draws === undefined ? this.config.refillDraw : this.pending.draws;
+      const count = Math.min(bonus + room, this.config.handMax - this.hand.length, this.playerDeck.length);
+      const cards = [];
+      for (let i = 0; i < count; i++) {
+        cards.push({ card: this.playerDeck[this.playerDeck.length - 1 - i], extra: i < bonus });
+      }
+      return cards;
+    }
+
+    resolveRefill() {
+      if (!this.pending || this.pending.type !== 'refill') return fail('Nada para comprar.');
+      const room = this.pending.draws === undefined ? this.config.refillDraw : this.pending.draws;
+      const drawn = this.draw((this.pending.bonus || 0) + room);
       this.pending = null;
-      this.log(`Descarta ${discards.length} e compra ${drawn} carta(s).`);
+      this.log(`Você compra ${drawn} carta(s).`);
       this.afterAction();
-      return { ok: true, discarded: discards.length, drawn };
+      return { ok: true, drawn };
     }
   }
 

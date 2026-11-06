@@ -11,18 +11,31 @@
     // Passos com "wait" só liberam o "Próximo" depois que a pessoa faz a ação de verdade.
     steps: [
       {
-        id: 'goal',
-        kind: 'modal',
-        title: 'Bem-vindo à masmorra!',
-        body: `<p>Desça os <b>5 andares</b> até a escada de saída <b>▼</b>. As cartas são tudo o que você tem: servem para <b>andar</b>, <b>abrir portas</b> e usar <b>poderes</b>.</p>
-          <p>Sua <b>vida é o deck + a mão</b>. Cada carta gasta é um pedacinho de vida, e sem nenhuma ação possível você perde.</p>
-          <p class="muted">Vamos jogar de verdade: eu explico enquanto você faz. Leva uns 2 minutos.</p>`,
-        next: 'Começar',
+        id: 'intro',
+        kind: 'intro',
+        // Cenas da abertura: fundo escuro com um "farol" no foco, e o texto digitado por cima.
+        // focus: 'player' (o personagem no mapa) ou 'hand' (a mão). Um clique passa para a próxima.
+        scenes: [
+          { focus: 'player', lines: ['Bem-vindo à masmorra.', 'Este é você.'] },
+          { focus: 'hand', lines: ['Esta é a sua mão.', 'Se as cartas acabarem, você perde. Gaste com cuidado.'] },
+        ],
       },
       {
         id: 'move',
         kind: 'coach',
         wait: 'move',
+        // Assim que a pessoa escolhe uma carta, o foco volta no personagem e na carta e o texto digita.
+        // Não bloqueia nada: é só andar por um dos quadrados marcados.
+        auto: 900, // ao concluir, o próximo passo começa sozinho depois deste tempo (ms)
+        spots: [
+          {
+            id: 'move-card',
+            trigger: 'card', // aparece quando 1 carta é escolhida
+            silent: true, // enquanto espera a ação, o cartão lateral fica só com progresso e "pular"
+            focus: ['player', 'card'],
+            lines: ['Você pode usar uma carta para se mover. Cada número da carta é uma casa no grid.', 'Escolha um dos quadrados marcados e ande.'],
+          },
+        ],
         title: 'Andar',
         variant: (c) => (c.selected ? 'picked' : 'idle'),
         body: {
@@ -35,6 +48,36 @@
         id: 'door',
         kind: 'coach',
         wait: 'open',
+        // Foco na porta enquanto a pessoa ainda não chegou ao lado dela; a casa ao lado pulsa no mapa.
+        // Ao chegar na casa ao lado, o foco passa para o número da porta e a mão: como pagar.
+        spots: [
+          {
+            id: 'door-away',
+            trigger: 'away', // ainda não está ao lado de uma porta fechada
+            pulse: 'hand', // a mão pulsa até uma carta ser escolhida
+            focus: ['door', 'hand'], // a mão também: a pessoa precisa saber que são as cartas que movem
+            lines: ['Para explorar a masmorra, vai ser necessário abrir as portas.', 'Chegue até a casa adjacente usando uma carta para se mover.'],
+          },
+          {
+            id: 'door-near',
+            trigger: 'near', // ao lado de uma porta fechada
+            pulse: 'hand',
+            compact: true, // texto menor: são 3 frases e não podem cobrir a porta
+            focus: ['door', 'hand'], // a porta inteira em volta: dá para ler o número dela
+            lines: [
+              'Para abrir, precisamos pagar um valor igual ou maior do que a carta da porta.',
+              'Podemos usar uma carta só, ou somar duas ou mais.',
+              'Use sua mão para abrir essa porta!',
+            ],
+          },
+          {
+            id: 'door-open',
+            trigger: 'opened', // a porta acabou de abrir (e a janela das cartas da sala já foi fechada)
+            focus: ['room'], // a sala nova, com a porta aberta junto
+            advance: 4500, // depois do texto inteiro digitado, o próximo passo começa sozinho (ms)
+            lines: ['Porta aberta!', 'Agora você pode passar por aqui livremente.'],
+          },
+        ],
         title: 'Portas',
         variant: (c) => (c.adjacent ? (c.selected ? 'pay' : 'pick') : 'approach'),
         body: {
@@ -47,6 +90,119 @@
           chest: `<b>Baú aberto!</b> Funciona como uma porta: você paga o custo com a soma das cartas.`,
         },
       },
+      {
+        id: 'exit',
+        kind: 'coach',
+        wait: 'descend', // concluído quando a pessoa desce a escada para o andar 2
+        auto: 300, // o próximo passo começa sozinho (depois da janela do andar novo fechar)
+        // Foco na escada (que pulsa no mapa, com uma setinha) e na mão, que paga o movimento.
+        spots: [
+          {
+            id: 'exit-stairs',
+            trigger: 'any',
+            pulse: 'hand', // a mão pulsa até uma carta ser escolhida
+            compact: true, // a escada fica logo abaixo do texto: letra menor para não cobrir a setinha
+            focus: ['exit', 'hand'],
+            lines: ['Para escapar desse andar, vá até a escada.', 'Use uma carta de movimento com valor apropriado e clique na casa da escada.'],
+          },
+        ],
+        title: 'A escada',
+        body: {
+          default: `Para escapar desse andar, vá até a <b>escada ▼</b>. Escolha uma carta de movimento com valor suficiente e clique na casa da escada.`,
+        },
+        done: { default: `<b>Andar 2!</b>` },
+      },
+      {
+        id: 'spades',
+        kind: 'coach',
+        wait: 'power',
+        waitSuit: 'S', // só conta o poder de ♠
+        auto: 1200,
+        // RASCUNHO dos textos: a janela do andar já entregou ♠ e ♥. Primeiro as espadas, porque a mão está curta.
+        spots: [
+          {
+            id: 'spades-use',
+            trigger: 'suit', // a carta escolhida é de ♠
+            focus: ['card', 'power', 'deck'], // o deck também: é de lá que as cartas saem
+            lines: ['Espadas compram cartas do deck para a sua mão.', 'O número indica o máximo de cartas compradas: respeitando o limite de 5 cartas na mão.'],
+          },
+          {
+            id: 'spades-pick',
+            trigger: 'any',
+            pulse: 'hand',
+            focus: ['hand'],
+            lines: ['Sua mão está curta, mas você ganhou duas cartas especiais.', 'Escolha a carta de espadas ♠ para comprar mais cartas.'],
+          },
+        ],
+        title: 'Espadas ♠',
+        body: { default: `<b>♠ Espadas</b> compram cartas. Escolha a ♠ e use o botão <b>Poder</b>, ao lado esquerdo da mão.` },
+        done: { default: `<b>Isso!</b> A ♠ foi para o descarte e você comprou cartas até encher a mão.` },
+      },
+      {
+        id: 'hearts',
+        kind: 'coach',
+        wait: 'power',
+        waitSuit: 'H',
+        auto: 1200,
+        spots: [
+          {
+            id: 'hearts-use',
+            trigger: 'suit',
+            compact: true, // texto longo: letra menor e caixa mais larga para não cobrir a sala
+            focus: ['card', 'power', 'deck'], // o deck também: é para lá que as cartas voltam
+            lines: ['Copas devolvem cartas do descarte para engordar o seu deck. O número da carta indica quantas voltarão.', 'Ficar com o deck zerado pode te matar! Fique esperto e beba água ❤️'],
+          },
+          {
+            id: 'hearts-pick',
+            trigger: 'any',
+            pulse: 'hand',
+            focus: ['hand', 'deck'], // o número do deck é a vida
+            lines: ['O seu deck é a sua vida: quando acaba, você perde.', 'Escolha a carta de copas ♥ para recuperar cartas.'],
+          },
+        ],
+        title: 'Copas ♥',
+        body: { default: `<b>♥ Copas</b> devolvem cartas do descarte para o deck: mais vida. Escolha a ♥ e use o <b>Poder</b>.` },
+        done: { default: `<b>Isso!</b> As cartas voltaram para o deck.` },
+      },
+      {
+        id: 'suits-others',
+        kind: 'intro', // um clique avança
+        scenes: [
+          {
+            focus: 'hand',
+            lines: ['Ouros ♦ dobram o alcance ao andar. Um 4♦ anda 8 casas.', 'Paus ♣ são coringas: valem o próprio número ou copiam o de outra carta.'],
+          },
+        ],
+      },
+      {
+        id: 'fight',
+        kind: 'coach',
+        wait: 'win', // nunca é "concluído": chegar na escada vence o treino e abre a janela de fim
+        // RASCUNHO dos textos. A escada tem um inimigo ao lado: entrar na zona vermelha abre o combate (janela com a dica).
+        spots: [
+          {
+            id: 'fight-clear',
+            trigger: 'cleared', // o inimigo caiu
+            focus: ['exit'],
+            lines: ['Inimigo derrotado!', 'Agora a escada está livre. Vá até ela.'],
+          },
+          {
+            id: 'fight-away',
+            trigger: 'any',
+            pulse: 'hand',
+            focus: ['enemy', 'hand'],
+            lines: ['Um inimigo guarda a escada. A zona vermelha é o alcance dele.', 'Use uma carta para entrar nela e começar o combate.'],
+          },
+        ],
+        title: 'Inimigo',
+        body: { default: `Um <b>inimigo</b> guarda a escada. Entre na <b>zona vermelha</b> com uma carta de movimento para lutar.` },
+        done: { default: `<b>Você venceu!</b>` },
+      },
+    ],
+
+    // Passos que saíram do roteiro enquanto o treino é refeito passo a passo (chegar na escada encerra o
+    // treino, então eles não têm onde entrar). Os textos ficam aqui para serem reaproveitados depois.
+    parked: [
       {
         id: 'suits',
         kind: 'modal',
@@ -97,8 +253,6 @@
 
     // Dicas dentro das janelas (aparecem só na primeira vez de cada tipo).
     tips: {
-      refill: 'Descartar é opcional, mas com a mão cheia (5) é preciso descartar para comprar. Descarte só o que não ajuda: cartas descartadas só voltam com <b>♥</b>.',
-      combat: 'Derrube as cartas do inimigo usando cartas da mão cuja soma seja pelo menos o custo. Uma carta está <b>virada de costas</b> e só aparece depois. <b>Fugir custa 1 carta</b> (e se for a última, você perde).',
       chest: 'Escolha até 2 das cartas reveladas para levar. As outras voltam para o deck.',
     },
 
@@ -183,6 +337,7 @@
     note(event, data = {}) {
       const step = this.step;
       if (!step || step.wait !== event || this.doneSteps.has(this.index)) return false;
+      if (step.waitSuit && data.suit !== step.waitSuit) return false; // ex.: só o poder de ♠ conta
       this.doneSteps.add(this.index);
       if (event === 'open') this.doneKind = data.kind === 'chest' ? 'chest' : 'door';
       return true;
@@ -230,7 +385,7 @@
     text(ctx = {}) {
       const step = this.step;
       if (!step) return null;
-      const body = typeof step.body === 'string' ? step.body : step.body[step.variant ? step.variant(ctx) : 'default'];
+      const body = !step.body ? '' : typeof step.body === 'string' ? step.body : step.body[step.variant ? step.variant(ctx) : 'default'];
       const done = this.isDone() && step.wait;
       const doneBody = done ? step.done[this.doneKind] || step.done.default : '';
       return { id: step.id, title: step.title, body, done: Boolean(done), doneBody, kind: step.kind, next: step.next || 'Próximo' };
@@ -260,7 +415,7 @@
       return { id, ...hint };
     }
 
-    // Dica dentro de uma janela (reposição, combate, baú). Vale até durante os passos guiados.
+    // Dica dentro de uma janela (baú). Vale até durante os passos guiados.
     tip(id) {
       const text = TEXT.tips[id];
       if (!text || !this.saved.hints || this.saved.seen['tip-' + id]) return '';
@@ -356,7 +511,7 @@
     const p = stats.powers;
     const lines = [];
     lines.push('DECK CRAWLY — relatório de playtest');
-    lines.push(`Seed: ${game.seed} (repete a mesma masmorra com ?seed=${game.seed})`);
+    lines.push(game.tutorial ? 'Seed: nenhuma (andar fixo do tutorial)' : `Seed: ${game.seed} (repete a mesma masmorra com ?seed=${game.seed})`);
     lines.push(`Resultado: ${RESULT[game.status] || game.status}`);
     lines.push(`Andar: ${game.floorNo} de ${game.config.floors}`);
     lines.push(`Tempo: ${duration(now - stats.startedAt)}`);
@@ -370,7 +525,7 @@
     lines.push(`Combates: ${stats.combats} (${stats.victories} vitórias, ${stats.flees} fugas, ${stats.attacks} ataques)`);
     lines.push(`Poderes: ♥ ${p.H} · ♠ ${p.S} · ♦ ${p.D} · ♣ ${p.C}`);
     lines.push(`Pergaminhos: ${stats.scrolls} · cartas guardadas ${stats.stashes} vezes`);
-    lines.push(`Reposições de mão: ${stats.refills}`);
+    lines.push(`Salas novas (cartas ganhas): ${stats.refills}`);
     lines.push(`Abriu as Regras: ${stats.helps} vezes`);
     const msgs = Object.entries(stats.rejectMessages).sort((a, b) => b[1] - a[1]);
     lines.push(`Jogadas recusadas: ${stats.rejects}`);

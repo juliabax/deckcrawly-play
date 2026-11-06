@@ -110,6 +110,11 @@
     },
 
     // andar: passinho (o tom varia um pouco) e o deslize do ♦
+    // tecla de máquina de escrever (o texto do tutorial): um estalo seco e uma batidinha grave, sempre um pouco diferentes
+    type: (b, t) => {
+      b.noise(t, { dur: 0.035, type: 'highpass', freq: 2600 + Math.random() * 1800, q: 0.7, gain: 0.16, attack: 0.002 });
+      b.tone(t, { freq: 150 + Math.random() * 50, to: 90, dur: 0.04, type: 'square', gain: 0.045, attack: 0.002 });
+    },
     step: (b, t) => b.noise(t, { dur: 0.05, type: 'bandpass', freq: 400 + Math.random() * 250, q: 0.7, gain: 0.4 }),
     swoosh: (b, t) => b.noise(t, { dur: 0.28, type: 'bandpass', freq: 500, to: 3000, q: 1, gain: 0.7 }),
 

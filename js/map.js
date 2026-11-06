@@ -259,6 +259,67 @@
     return floor;
   }
 
+  // Andar fixo do tutorial (sem seed): um retângulo horizontal com a sala de início à esquerda,
+  // uma porta no meio e uma sala pequena com a escada de saída à direita. Grade 13 × 5.
+  //
+  //   #############
+  //   #.......#..>#
+  //   #.......D...#      D = porta, > = saída, @ = início
+  //   #@......#...#
+  //   #############
+  function tutorialFloor(cost) {
+    const w = 13;
+    const h = 5;
+    const grid = Array.from({ length: h }, () => Array.from({ length: w }, () => ({ type: 'wall', room: null, ref: null })));
+    const rooms = [
+      { id: 0, x: 1, y: 1, w: 7, h: 3, kind: 'start' },
+      { id: 1, x: 9, y: 1, w: 3, h: 3, kind: 'exit' },
+    ];
+    for (const r of rooms) {
+      for (let y = r.y; y < r.y + r.h; y++) {
+        for (let x = r.x; x < r.x + r.w; x++) grid[y][x] = { type: 'floor', room: r.id, ref: null };
+      }
+    }
+    const door = { id: 0, x: 8, y: 2, orient: 'v', a: 0, b: 1, cost, open: false };
+    grid[door.y][door.x] = { type: 'door', room: null, ref: door.id };
+    const start = { x: 1, y: 3 };
+    const exit = { x: 11, y: 1 };
+    grid[start.y][start.x].type = 'start';
+    grid[exit.y][exit.x].type = 'exit';
+    return { w, h, grid, rooms, doors: [door], chests: [], enemies: [], start, exit };
+  }
+
+  // Segundo andar do treino: uma sala comprida, e um inimigo ao lado da escada (alcance 1). Chegar na escada
+  // é entrar na zona dele, então só dá para passar lutando. `cards` são as cartas dele (a última fica virada).
+  function tutorialFloor2(cards) {
+    const w = 13;
+    const h = 5;
+    const grid = Array.from({ length: h }, () => Array.from({ length: w }, () => ({ type: 'wall', room: null, ref: null })));
+    const rooms = [{ id: 0, x: 1, y: 1, w: 11, h: 3, kind: 'start' }];
+    for (let y = 1; y <= 3; y++) {
+      for (let x = 1; x <= 11; x++) grid[y][x] = { type: 'floor', room: 0, ref: null };
+    }
+    const start = { x: 1, y: 2 };
+    const exit = { x: 11, y: 2 };
+    grid[start.y][start.x].type = 'start';
+    grid[exit.y][exit.x].type = 'exit';
+    const enemy = {
+      id: 0,
+      x: 10,
+      y: 2,
+      room: 0,
+      range: 1,
+      blocks: true,
+      kind: 'skeleton1',
+      cards,
+      hidden: [cards[cards.length - 1].id],
+      down: [],
+      dead: false,
+      scroll: false,
+    };
+    return { w, h, grid, rooms, doors: [], chests: [], enemies: [enemy], start, exit };
+  }
+
   function generateFloor(rng, cfg, drawCost) {
     for (let i = 0; i < 200; i++) {
       const floor = tryBuild(rng, cfg, drawCost);
@@ -422,5 +483,5 @@
     return targets;
   }
 
-  Object.assign(DC, { generateFloor, cellAt, reach, pathTo, adjacentTargets, placeEnemies, enemyAt, enemyZone, blocksRoom, DIRS });
+  Object.assign(DC, { generateFloor, tutorialFloor, tutorialFloor2, cellAt, reach, pathTo, adjacentTargets, placeEnemies, enemyAt, enemyZone, blocksRoom, DIRS });
 })(typeof window !== 'undefined' ? window : globalThis);

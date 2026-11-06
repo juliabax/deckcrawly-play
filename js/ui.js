@@ -61,6 +61,7 @@
   const remainingEnemyCards = (enemy) => enemy.cards.filter((c) => !enemy.down.includes(c.id));
   const isHiddenCard = (enemy, card) => Boolean(enemy.hidden) && enemy.hidden.includes(card.id);
   const MINI_BACK = '<span class="mini back"></span>';
+  const ENEMY_NAME = { skeleton1: 'Skelly', skeleton2: 'Esqueleto', vampire: 'Vampiro' };
 
   // O zoom é um múltiplo do tamanho que faz a masmorra inteira caber na tela.
   const ZOOMS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3];
@@ -145,11 +146,18 @@
       this.notes = {}; // respostas das perguntas do fim da partida
       this.reportView = false; // janela com o texto do relatório (quando não dá para copiar sozinho)
       this.el.coach = $('coach');
+      this.el.intro = $('intro');
+      this.intro = { on: false, mode: '', scene: -1, timer: 0, typing: false, chars: [], key: null, spotId: '', scenes: [] };
+      this.spotSeen = new Set(); // avisos de foco que já tocaram nesta rodada do tutorial
       this.el.notice = $('notice');
       this.bind();
       this.showNotice();
-      const seed = new URLSearchParams(location.search).get('seed');
-      this.newGame(seed);
+      // Na primeira visita (ou com ?tutorial) o jogo começa pelo andar fixo de treino; a masmorra
+      // de verdade (com a seed do endereço, se houver) vem depois dele.
+      const params = new URLSearchParams(location.search);
+      this.nextSeed = params.get('seed');
+      if (params.has('tutorial')) this.tutor.restart();
+      this.newGame(this.tutor.active ? null : this.nextSeed, this.tutor.active);
     }
 
     resetOverlayState() {
@@ -157,11 +165,11 @@
       this.picks = new Set();
     }
 
-    newGame(seed) {
-      this.game = new DC.Game({ seed: seed === null || seed === undefined ? undefined : seed });
+    newGame(seed, tutorial = false) {
+      this.game = new DC.Game({ seed: seed === null || seed === undefined ? undefined : seed, tutorial });
       window.game = this.game;
       try {
-        history.replaceState(null, '', `?seed=${encodeURIComponent(this.game.seed)}`);
+        history.replaceState(null, '', tutorial ? location.pathname : `?seed=${encodeURIComponent(this.game.seed)}`);
       } catch (e) {
         /* abrindo como arquivo: sem problema */
       }
@@ -184,8 +192,16 @@
       this.tipHTML = '';
       this.notes = {};
       this.tutor.doneSteps.delete(this.tutor.index); // numa masmorra nova, o passo de ação recomeça
+      this.hideIntro();
+      this.spotSeen = new Set();
       this.resetOverlayState();
       this.renderAll();
+    }
+
+    // "Novo jogo": durante o treino leva para a masmorra de verdade (e encerra o tutorial).
+    newGameFromButton() {
+      if (this.game.tutorial && this.tutor.active) this.tutor.skip();
+      this.newGame();
     }
 
     bind() {
@@ -195,7 +211,7 @@
       this.el.notice.addEventListener('click', (e) => {
         if (e.target.closest('[data-notice]')) this.el.notice.hidden = true;
       });
-      document.getElementById('btn-new').addEventListener('click', () => this.newGame());
+      document.getElementById('btn-new').addEventListener('click', () => this.newGameFromButton());
       document.getElementById('btn-fog').addEventListener('click', () => this.toggleFog());
       document.getElementById('btn-fx').addEventListener('click', () => this.toggleFx());
       document.getElementById('btn-sound').addEventListener('click', () => this.toggleSound());
@@ -212,6 +228,9 @@
         },
         { capture: true },
       );
+      window.addEventListener('resize', () => {
+        if (this.intro.on && this.intro.scene >= 0) this.introPlace(this.introScenes()[this.intro.scene].focus, true);
+      });
       document.getElementById('btn-center').addEventListener('click', () => this.centerCamera());
       this.bindPan();
       document.getElementById('btn-zoom-in').addEventListener('click', () => this.changeZoom(1));
@@ -266,6 +285,15 @@
     onKey(e) {
       const typing = e.target && e.target.closest && e.target.closest('input, textarea');
       if (typing && e.key !== 'Escape') return; // digitando nas perguntas: nada de atalhos
+      if (this.intro.on && this.intro.mode === 'intro') {
+        // Na abertura do tutorial, só avançar (ou pular) vale.
+        if (e.key === 'Escape') this.introFinish();
+        else if ([' ', 'Enter', 'ArrowRight'].includes(e.key)) {
+          e.preventDefault();
+          this.introAdvance();
+        }
+        return;
+      }
       if (this.lastOverlay === 'tutorial' && !this.el.overlay.hidden) return; // a janela do tutorial só usa os botões
       if (e.key === 'Escape') {
         if (this.reportView) {
@@ -983,6 +1011,7 @@
       this.renderCoach();
       this.updateHighlights();
       if (this.game.inCombat()) this.renderOverlay();
+      this.syncIntro();
     }
 
     onPanelClick(e) {
@@ -1033,7 +1062,7 @@
         const res = this.game.open(x, y, this.sel);
         if (!res.ok) return this.reject(res.error);
         // As cartas voam até a porta, a névoa se abre a partir dela e o modal
-        // de reposição espera os efeitos terminarem.
+        // das cartas da sala nova espera os efeitos terminarem.
         this.fxExit = { rect };
         this.fxOrigin = { x, y };
         this.fxHold = res.exact || res.kind === 'chest' ? 750 : 350;
@@ -1095,6 +1124,7 @@
       this.el.map.style.removeProperty('--step');
       this.track('move', { steps: res.path.length - 1, suit: walked.suit });
       if (res.combat) this.track('combat');
+      if (res.descended && this.game.status === 'playing') this.track('descend');
       if (res.combat) {
         this.combatStartFx();
         await sleep(this.fxOn ? 500 : 0);
@@ -1167,7 +1197,7 @@
           this.renderOverlay();
           break;
         case 'confirm-refill': {
-          const res = g.resolveRefill([...this.discard]);
+          const res = g.resolveRefill();
           if (!res.ok) return this.toast(res.error);
           this.track('refill');
           this.resetOverlayState();
@@ -1206,6 +1236,13 @@
         case 'restart-new':
           this.newGame();
           break;
+        case 'tour-retry':
+          this.newGame(null, true);
+          break;
+        case 'tour-play':
+          this.tutor.finish('done');
+          this.newGame(this.nextSeed);
+          break;
       }
     }
 
@@ -1233,12 +1270,13 @@
       clearTimeout(this.overlayTimer);
       if (hold) this.overlayTimer = setTimeout(() => this.renderOverlay(), hold);
       else this.renderOverlay();
+      this.syncIntro();
     }
 
     renderSide() {
       const g = this.game;
       this.el.floor.textContent = `Andar ${g.floorNo} / ${g.config.floors}`;
-      this.el.seed.textContent = `seed ${g.seed}`;
+      this.el.seed.textContent = g.tutorial ? 'treino' : `seed ${g.seed}`;
       this.renderPiles();
       this.renderHand();
       this.renderStash();
@@ -1312,18 +1350,18 @@
       this.newSlot = -1;
     }
 
-    // Os slots também aparecem dentro das janelas (reposição, baú e combate), onde a mão fica coberta.
+    // Os slots também aparecem dentro das janelas (baú e combate), onde a mão fica coberta.
     stashModalHTML() {
       const g = this.game;
       if (!g.slotsOpen) return '';
       return `<h4>Inventário ${g.stash.length}/${g.slotsOpen} · guardar em vez de descartar</h4><div class="stash-row modal-stash">${this.slotsInner()}</div>`;
     }
 
-    // Qual carta da mão vai para um slot livre: a marcada para descartar (reposição e baú) ou
+    // Qual carta da mão vai para um slot livre: a marcada para descartar (baú) ou
     // a única carta escolhida.
     slotCandidate() {
       const g = this.game;
-      if (g.pending && (g.pending.type === 'refill' || g.pending.type === 'chest')) {
+      if (g.pending && g.pending.type === 'chest') {
         return [...this.discard].find((id) => g.hand.some((c) => c.id === id)) || null;
       }
       return this.sel.length === 1 ? this.sel[0] : null;
@@ -1332,6 +1370,7 @@
     onSlotClick(el) {
       const g = this.game;
       if (this.busy || !g.canStore()) return;
+      if (g.pending && g.pending.type === 'refill') return this.toast('Pegue as cartas primeiro.');
       const rect = el.getBoundingClientRect();
       if (el.dataset.id) {
         // Slot com carta: devolve para a mão.
@@ -1347,7 +1386,7 @@
       }
       const id = this.slotCandidate();
       if (!id) {
-        const modal = g.pending && (g.pending.type === 'refill' || g.pending.type === 'chest');
+        const modal = g.pending && g.pending.type === 'chest';
         return this.toast(modal ? 'Marque 1 carta da mão e toque no slot: ela é guardada em vez de descartada.' : 'Escolha 1 carta da mão e toque no slot para guardá-la.');
       }
       const res = g.stashCard(id);
@@ -1457,7 +1496,19 @@
       const g = this.game;
       const cards = g.handCards(this.sel) || [];
       const sum = g.selectionSum(this.sel);
-      let html = `<h3>Seleção · soma ${sum}</h3><div class="row">${cards.map(miniChip).join('')}</div>`;
+      // Soma exata: bate com o custo de uma carta do inimigo (combate) ou de uma porta/baú ao lado.
+      // É a melhor jogada (compra 1 carta), então o box inteiro ganha destaque.
+      let exact = false;
+      if (cards.length) {
+        if (combat) {
+          const enemy = g.combatEnemy();
+          exact = Boolean(enemy) && enemy.cards.some((c) => !enemy.down.includes(c.id) && !isHiddenCard(enemy, c) && c.rank === sum);
+        } else {
+          exact = g.adjacentTargets().some((t) => t.obj.cost.rank === sum);
+        }
+      }
+      const star = exact ? '<span class="exact-tag">★ soma exata · +1 carta</span>' : '';
+      let html = `<h3>Seleção · soma ${sum}${star}</h3><div class="row">${cards.map(miniChip).join('')}</div>`;
 
       if (cards.length === 1) {
         const c = cards[0];
@@ -1467,14 +1518,6 @@
           if (c.suit === 'D') why = ` (${c.rank} × 2 do ♦)`;
           else if (c.suit === 'C' && g.jokerTarget(c)) why = ` (coringa copia ${label(g.jokerTarget(c))})`;
           html += `<p><b>Andar:</b> até ${range} casa(s)${why}.</p>`;
-        }
-        // Fora do combate o botão do poder fica ao lado da mão (renderPower); no combate, na janela.
-        if (combat && c.suit === 'H') {
-          const n = this.powerCount(c);
-          html += `<button class="btn" data-act="power" ${n ? '' : 'disabled'}>Usar ♥: devolver ${n} carta(s) do descarte ao deck</button>`;
-        } else if (combat && c.suit === 'S') {
-          const n = this.powerCount(c);
-          html += `<button class="btn" data-act="power" ${n ? '' : 'disabled'}>Usar ♠: comprar ${n} carta(s)</button>`;
         }
       }
 
@@ -1489,11 +1532,12 @@
           )
           .join('')}</div>`;
       }
-      return { html, sum, cards };
+      return { html, sum, cards, exact };
     }
 
     // Botão do poder (♥ e ♠) ao lado esquerdo da mão: aparece quando 1 carta dessas está escolhida.
-    renderPower() {
+    // O botão Poder (♥ e ♠): fica ao lado da mão e também dentro da janela de combate.
+    powerHTML() {
       const g = this.game;
       const cards = g.status === 'playing' ? g.handCards(this.sel) || [] : [];
       const c = cards.length === 1 ? cards[0] : null;
@@ -1506,7 +1550,11 @@
       } else {
         body = '<div class="power-empty">Escolha uma carta ♥ ou ♠ para usar o poder</div>';
       }
-      this.el.power.innerHTML = `<div class="power-label">Poder</div>${body}`;
+      return `<div class="power-label">Poder</div>${body}`;
+    }
+
+    renderPower() {
+      this.el.power.innerHTML = this.powerHTML();
     }
 
     renderPanel() {
@@ -1518,6 +1566,7 @@
         return;
       }
       const cards = g.handCards(this.sel) || [];
+      panel.classList.remove('exact');
       if (!cards.length) {
         panel.innerHTML = `<h3>Sua vez</h3>
           <p>Selecione cartas da mão:</p>
@@ -1526,7 +1575,8 @@
         return;
       }
 
-      const { html: selHTML, sum } = this.selectionHTML(false);
+      const { html: selHTML, sum, exact } = this.selectionHTML(false);
+      panel.classList.toggle('exact', exact);
       let html = selHTML;
 
       const targets = g.adjacentTargets();
@@ -1559,6 +1609,10 @@
       const rect = this.el.mapWrap.getBoundingClientRect();
       const fit = Math.min((rect.width - 24) / f.w, (rect.height - 24) / f.h);
       this.tile = Number.isFinite(fit) && fit > 0 ? Math.max(20, Math.min(140, Math.floor(fit * ZOOMS[this.zoom]))) : 40;
+      // Andar de treino: o mapa inteiro cabe sempre, ocupando no máximo metade da altura da área
+      // (o resto, em cima, fica livre para os textos). O zoom escolhido não vale aqui.
+      if (g.tutorial) this.tile = Math.max(24, Math.min(96, Math.floor(Math.min((rect.width - 48) / f.w, (rect.height * 0.5) / f.h))));
+      this.el.mapWrap.classList.toggle('tutorial-map', g.tutorial);
       const art = this.artActive();
       // Com a arte, a casa é múltiplo de 8 px: a pixel art de 16 px fica nítida.
       if (art) this.tile = Math.max(24, Math.floor(this.tile / 8) * 8);
@@ -1686,10 +1740,16 @@
       };
       const w = wrap.clientWidth;
       const h = wrap.clientHeight;
-      const tx = axis(w, f.w * this.tile, x, this.view ? this.view.tx : null);
-      const ty = axis(h, f.h * this.tile, y, this.view ? this.view.ty : null);
+      let tx = axis(w, f.w * this.tile, x, this.view ? this.view.tx : null);
+      let ty = axis(h, f.h * this.tile, y, this.view ? this.view.ty : null);
+      if (this.game.tutorial) {
+        // Posição fixa: centralizado na horizontal e na parte de baixo da área, com folga em cima.
+        tx = (w - f.w * this.tile) / 2;
+        ty = Math.max(0, h - f.h * this.tile - h * 0.17);
+        this.view = null;
+      }
       this.camera = { tx, ty };
-      wrap.classList.toggle('pannable', f.w * this.tile > w || f.h * this.tile > h);
+      wrap.classList.toggle('pannable', !this.game.tutorial && (f.w * this.tile > w || f.h * this.tile > h));
       document.getElementById('btn-center').disabled = !this.view;
       if (!animate) map.style.transition = 'none';
       map.style.transform = `translate(${tx}px, ${ty}px)`;
@@ -1703,7 +1763,14 @@
       this.tapTile = null;
       const g = this.game;
       const f = g.floor;
-      for (const el of this.tileEls) el.classList.remove('reach', 'path', 'path-end', 'fight', 'open-ok', 'open-exact', 'open-no', 'open-hint', 'tut-target');
+      for (const el of this.tileEls) {
+        el.classList.remove('reach', 'path', 'path-end', 'fight', 'open-ok', 'open-exact', 'open-no', 'open-hint', 'tut-target');
+        if (el.classList.contains('tut-here')) {
+          el.classList.remove('tut-here');
+          const arrow = el.querySelector('.tut-arrow');
+          if (arrow) arrow.remove();
+        }
+      }
       this.reachMap = null;
       if (g.status !== 'playing' || g.pending || this.busy) return;
       this.tourHighlights();
@@ -1722,12 +1789,322 @@
       }
     }
 
+    // ---------- foco do tutorial: luz suave no alvo + texto digitado ----------
+    //
+    // Dois modos usam a mesma camada (#intro):
+    //  - "intro": a abertura. Cobre a tela, e um clique passa para a próxima cena.
+    //  - "spot": um aviso curto durante o passo (ex.: depois de escolher a carta). Não bloqueia
+    //    nada: a pessoa continua jogando por baixo, e ele some quando a situação muda.
+
+    introWant() {
+      const g = this.game;
+      const step = this.tutor.step;
+      if (!step || g.status !== 'playing' || g.pending || this.help || this.reportView || this.busy) return null;
+      if (step.kind === 'intro') return 'intro';
+      if (this.currentSpot()) return 'spot';
+      return null;
+    }
+
+    // O aviso de foco que vale agora: o primeiro do passo cujo gatilho está ativo.
+    // 'card' = 1 carta escolhida; 'away' = longe das portas fechadas; 'near' = ao lado de uma.
+    // 'opened' = a porta do passo já foi aberta (é o único aviso que vale com o passo concluído).
+    currentSpot() {
+      const step = this.tutor.step;
+      if (!step || !step.spots) return null;
+      const done = this.tutor.isDone();
+      const near = this.game.adjacentTargets().length > 0;
+      const picked = this.sel.length === 1 ? this.game.hand.find((c) => c.id === this.sel[0]) : null;
+      const on = {
+        card: this.sel.length === 1,
+        suit: Boolean(picked) && picked.suit === step.waitSuit, // a carta escolhida é do naipe do passo
+        away: !near,
+        near,
+        any: true,
+        cleared: this.game.floor.enemies.length > 0 && this.game.floor.enemies.every((e) => e.dead),
+        opened: this.tutor.doneKind === 'door',
+      };
+      return step.spots.find((sp) => (sp.trigger === 'opened') === done && on[sp.trigger]) || null;
+    }
+
+    syncIntro() {
+      const want = this.introWant();
+      if (!want) {
+        if (this.intro.on) this.hideIntro();
+        return;
+      }
+      const spot = want === 'spot' ? this.currentSpot() : null;
+      if (this.intro.mode !== want || (spot && this.intro.spotId !== spot.id)) {
+        if (this.intro.on) this.hideIntro();
+        this.showIntro(want);
+      } else if (spot && ['card', 'suit'].includes(spot.trigger) && this.intro.key !== this.sel[0]) {
+        // Escolheu outra carta: o foco acompanha.
+        this.intro.key = this.sel[0];
+        this.introPlace(this.introScenes()[0].focus, false);
+      }
+    }
+
+    showIntro(mode) {
+      const el = this.el.intro;
+      this.intro.on = true;
+      this.intro.mode = mode;
+      this.intro.scene = -1;
+      this.intro.key = this.sel[0];
+      const spot = mode === 'spot' ? this.currentSpot() : null;
+      this.intro.spotId = spot ? spot.id : '';
+      this.intro.scenes = spot ? [spot] : this.tutor.step.scenes || [];
+      el.classList.toggle('free', mode === 'spot');
+      el.innerHTML = `<div class="intro-dim"></div>
+        <div class="intro-text" aria-live="polite"></div>
+        ${mode === 'intro' ? '<button class="link intro-skip" type="button">Pular tutorial</button>' : ''}`;
+      el.hidden = false;
+      el.onclick =
+        mode === 'intro'
+          ? (e) => {
+              if (e.target.closest('.intro-skip')) this.introSkip();
+              else this.introAdvance();
+            }
+          : null;
+      if (mode === 'intro') {
+        this.sel = [];
+        this.refreshSelection();
+      }
+      // A abertura espera as cartas terminarem de ser distribuídas e a câmera assentar.
+      // A abertura espera as cartas serem distribuídas; as outras cenas entram logo.
+      const wait = mode === 'spot' || this.tutor.index > 0 ? 150 : this.fxOn ? 1600 : 350;
+      this.intro.timer = setTimeout(() => this.introScene(0), wait);
+    }
+
+    hideIntro() {
+      const el = this.el.intro;
+      clearTimeout(this.intro.timer);
+      this.intro.on = false;
+      this.intro.mode = '';
+      this.intro.typing = false;
+      this.intro.scene = -1;
+      if (el) {
+        el.hidden = true;
+        el.innerHTML = '';
+        el.classList.remove('free');
+      }
+    }
+
+    introScenes() {
+      return this.intro.scenes || [];
+    }
+
+    // Monta uma cena: o foco vai até o alvo e o texto entra digitando.
+    introScene(i) {
+      const scenes = this.introScenes();
+      const scene = scenes[i];
+      if (!scene || !this.intro.on) return;
+      const el = this.el.intro;
+      const intro = this.intro.mode === 'intro';
+      this.intro.scene = i;
+      clearTimeout(this.intro.timer);
+      const textEl = el.querySelector('.intro-text');
+      // Cada letra é um <span> escondido: o texto já ocupa o lugar final e nada pula enquanto digita.
+      const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+      // Um "caractere" por letra visível: emojis como ❤️ (2 códigos) não podem ser partidos ao meio.
+      const glyphs = (w) => (window.Intl && Intl.Segmenter ? Array.from(new Intl.Segmenter().segment(w), (x) => x.segment) : Array.from(w));
+      textEl.innerHTML =
+        scene.lines
+          .map((line) => {
+            const words = line.split(' ').map((w) => `<span class="w">${glyphs(w).map((ch) => `<span class="c">${esc(ch)}</span>`).join('')}</span>`);
+            return `<p>${words.join(' ')}</p>`;
+          })
+          .join('') + (intro ? '<div class="intro-go">clique para continuar</div>' : '');
+      this.intro.chars = Array.from(textEl.querySelectorAll('.c'));
+      textEl.classList.remove('in');
+      this.introPlace(scene.focus, i === 0);
+      void textEl.offsetWidth;
+      textEl.classList.add('in'); // o balão sobe e aparece
+      // Quem já viu o aviso e volta a ele (escolheu a carta de novo) lê de uma vez.
+      textEl.classList.toggle('compact', Boolean(scene.compact));
+      const again = !intro && this.spotSeen.has(this.intro.spotId);
+      if (!intro) this.spotSeen.add(this.intro.spotId);
+      const calm = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (calm || again) return this.introReveal();
+      this.intro.typing = true;
+      let n = 0;
+      const tick = () => {
+        if (!this.intro.on || this.intro.scene !== i) return;
+        const c = this.intro.chars[n++];
+        if (c) c.classList.add('on');
+        if (c && c.textContent.trim()) this.sound('type'); // tec, tec, tec (máquina de escrever)
+        if (n >= this.intro.chars.length) return this.introReveal();
+        const ch = c ? c.textContent : '';
+        this.intro.timer = setTimeout(tick, '.!?'.includes(ch) ? 380 : ',:;'.includes(ch) ? 190 : 38);
+      };
+      this.intro.timer = setTimeout(tick, 420);
+    }
+
+    // Mostra o texto inteiro (fim da digitação ou clique para acelerar).
+    introReveal() {
+      clearTimeout(this.intro.timer);
+      for (const c of this.intro.chars) c.classList.add('on');
+      this.intro.typing = false;
+      const go = this.el.intro.querySelector('.intro-go');
+      if (go) go.classList.add('show');
+      // Aviso com "advance": com o texto todo na tela, o próximo passo começa sozinho depois de um tempo.
+      const spot = this.intro.mode === 'spot' ? this.introScenes()[this.intro.scene] : null;
+      if (spot && spot.advance) {
+        const step = this.tutor.step;
+        this.intro.timer = setTimeout(() => {
+          if (!this.intro.on || this.tutor.step !== step || this.busy || this.game.pending) return;
+          this.tutor.next();
+          this.tourChanged();
+        }, spot.advance);
+      }
+    }
+
+    // Leva o foco (clarão) e o balão de texto até o(s) alvo(s): 'player', 'hand' ou 'card' (a carta escolhida).
+    introPlace(focus, instant = false) {
+      const el = this.el.intro;
+      if (!el || el.hidden) return;
+      const dim = el.querySelector('.intro-dim');
+      const text = el.querySelector('.intro-text');
+      if (!dim || !text) return;
+      const list = [].concat(focus);
+      const vh = window.innerHeight;
+      const spot = (kind) => {
+        let r;
+        let rx;
+        let ry;
+        if (kind === 'hand') {
+          r = this.el.hand.getBoundingClientRect();
+          rx = r.width * 0.5 * 1.45 + 40;
+          ry = r.height * 0.5 * 1.9 + 50;
+        } else if (kind === 'card') {
+          r = (this.el.hand.querySelector('.card.sel') || this.el.hand).getBoundingClientRect();
+          rx = r.width * 0.5 * 2.3 + 40;
+          ry = r.height * 0.5 * 2.3 + 40;
+        } else if (kind === 'cost') {
+          // O número da porta (a cartinha pendurada nela).
+          const f = this.game.floor;
+          const door = f.doors.find((d) => !d.open && this.game.adjacentTargets().some((t) => t.x === d.x && t.y === d.y)) || f.doors.find((d) => !d.open);
+          const tile = door ? this.tileEls[door.y * f.w + door.x] : this.el.map;
+          r = (tile.querySelector('.mini') || tile).getBoundingClientRect();
+          rx = ry = Math.max(150, r.width * 3.5);
+        } else if (kind === 'room') {
+          // A sala nova (a última visitada) junto com a porta que leva até ela.
+          const f = this.game.floor;
+          const ahead = [...this.game.visited].pop();
+          const door = f.doors.find((d) => d.open && (d.a === ahead || d.b === ahead));
+          let l = Infinity;
+          let t = Infinity;
+          let rt = -Infinity;
+          let b = -Infinity;
+          const add = (x, y) => {
+            const q = this.tileEls[y * f.w + x].getBoundingClientRect();
+            l = Math.min(l, q.left);
+            t = Math.min(t, q.top);
+            rt = Math.max(rt, q.right);
+            b = Math.max(b, q.bottom);
+          };
+          for (let y = 0; y < f.h; y++) for (let x = 0; x < f.w; x++) if (f.grid[y][x].room === ahead) add(x, y);
+          if (door) add(door.x, door.y);
+          r = { left: l, top: t, width: rt - l, height: b - t };
+          // O buraco só fica totalmente limpo até ~40% do raio: o dobro do meio-lado deixa a sala inteira nítida.
+          rx = r.width + 50;
+          ry = r.height + 50;
+        } else if (kind === 'deck') {
+          // O deck do jogador (a pilha com o número): é a vida dele.
+          r = this.el.piles.children[0].getBoundingClientRect();
+          rx = ry = Math.max(150, r.width * 1.8);
+        } else if (kind === 'power') {
+          // O botão Poder (ao lado esquerdo da mão).
+          r = (this.el.power.querySelector('button') || this.el.power).getBoundingClientRect();
+          rx = ry = Math.max(120, r.width * 1.6);
+        } else if (kind === 'enemy') {
+          // O inimigo vivo (ou a escada, se ele já caiu): a zona vermelha fica dentro do foco.
+          const f = this.game.floor;
+          const foe = f.enemies.find((e) => !e.dead);
+          r = this.tileEls[(foe || f.exit).y * f.w + (foe || f.exit).x].getBoundingClientRect();
+          rx = ry = Math.max(240, r.width * 6);
+        } else if (kind === 'exit') {
+          // A escada de saída.
+          const f = this.game.floor;
+          r = this.tileEls[f.exit.y * f.w + f.exit.x].getBoundingClientRect();
+          rx = ry = Math.max(240, r.width * 6);
+        } else if (kind === 'door') {
+          const f = this.game.floor;
+          const door = f.doors.find((d) => !d.open && this.game.isCellShown(d.x, d.y));
+          r = (door ? this.tileEls[door.y * f.w + door.x] : this.el.map).getBoundingClientRect();
+          rx = ry = Math.max(260, r.width * 6.5);
+        } else {
+          r = (this.token || this.el.map).getBoundingClientRect();
+          rx = ry = Math.max(280, Math.max(r.width, r.height) * 5);
+        }
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2, rx, ry, top: r.top };
+      };
+      const a = spot(list[0]);
+      const b = list[1] ? spot(list[1]) : a; // sem segundo alvo, o segundo buraco cai em cima do primeiro
+      const c = list[2] ? spot(list[2]) : b; // idem para o terceiro
+      if (instant) dim.style.transition = 'none';
+      for (const [name, v] of Object.entries({ fx: a.x, fy: a.y, rx: a.rx, ry: a.ry, gx: b.x, gy: b.y, sx: b.rx, sy: b.ry, hx: c.x, hy: c.y, tx: c.rx, ty: c.ry })) dim.style.setProperty(`--${name}`, `${v}px`);
+      if (instant) {
+        void dim.offsetWidth;
+        dim.style.transition = '';
+      }
+      // O texto fica em cima do mapa, ou logo acima da mão quando o foco é só a mão.
+      const wrap = this.el.mapWrap.getBoundingClientRect();
+      text.style.top = text.style.bottom = '';
+      if (list.length === 1 && list[0] === 'hand') text.style.bottom = `${Math.round(vh - a.top + 28)}px`;
+      else text.style.top = `${Math.round(Math.max(wrap.top, 8) + 16)}px`;
+      el.dataset.focus = list.join('+');
+    }
+
+    // Um clique: se ainda está digitando, mostra o texto todo; senão vai para a próxima cena.
+    introAdvance() {
+      if (!this.intro.on || this.intro.mode !== 'intro' || this.intro.scene < 0) return;
+      if (this.intro.typing) return this.introReveal();
+      if (this.intro.scene + 1 < this.introScenes().length) this.introScene(this.intro.scene + 1);
+      else this.introFinish();
+    }
+
+    introFinish() {
+      if (!this.intro.on) return;
+      this.hideIntro();
+      this.tutor.next();
+      this.sound('ding', 0.1);
+      this.tourChanged();
+    }
+
+    introSkip() {
+      this.hideIntro();
+      this.tutor.skip();
+      this.tourChanged();
+    }
+
     // ---------- tutorial, dicas e relatório ----------
 
     // Registra o que a pessoa fez: números do relatório, passos do tutorial e dicas.
     track(event, data = {}) {
       this.stats.note(event, data);
-      if (this.tutor.note(event, data)) this.sound('ding', event === 'open' ? 0.55 : 0.1);
+      // A pessoa foi andar antes do aviso "seguir sozinho" acabar: o passo seguinte já vale.
+      const before = this.tutor.step;
+      if (event === 'move' && before && this.tutor.isDone() && (before.spots || []).some((sp) => sp.advance) && this.tutor.next()) {
+        this.hideIntro();
+        this.tourChanged();
+      }
+      if (this.tutor.note(event, data)) {
+        this.sound('ding', event === 'open' ? 0.55 : 0.1);
+        // Passos com "auto" seguem sozinhos depois de um instante (deu tempo de ver o resultado).
+        const step = this.tutor.step;
+        if (step && step.auto) {
+          clearTimeout(this.autoTimer);
+          // Se há uma janela aberta (ex.: as cartas do andar novo), espera ela fechar e tenta de novo.
+          const go = () => {
+            if (this.tutor.step !== step || !this.tutor.canNext) return;
+            if (this.busy || this.game.pending) this.autoTimer = setTimeout(go, 400);
+            else {
+              this.tutor.next();
+              this.tourChanged();
+            }
+          };
+          this.autoTimer = setTimeout(go, step.auto);
+        }
+      }
       if (event === 'scroll') this.hintQueue = 'scroll';
       // Uma dica de cartão some quando a pessoa age: a situação já mudou.
       if (event !== 'reject' && event !== 'help' && event !== 'stash') this.hint = null;
@@ -1744,6 +2121,7 @@
       const c = this.coachCtx();
       if (step.id === 'move') return c.selected ? null : 'hand';
       if (step.id === 'door') return !c.adjacent ? 'doors' : c.selected ? 'target' : 'hand';
+      if (step.id === 'exit') return 'stairs';
       return null;
     }
 
@@ -1753,11 +2131,27 @@
       const f = g.floor;
       const focus = this.tourFocus();
       if (focus === 'doors') {
-        for (let y = 0; y < f.h; y++) {
-          for (let x = 0; x < f.w; x++) {
-            const cell = f.grid[y][x];
-            if (cell.type === 'door' && !f.doors[cell.ref].open && g.isCellShown(x, y)) this.tileEls[y * f.w + x].classList.add('tut-target');
+        // A casa ao lado de cada porta fechada que já dá para ver pulsa, com uma setinha em cima.
+        for (const d of f.doors) {
+          if (d.open || !g.isCellShown(d.x, d.y)) continue;
+          for (const [dx, dy] of DC.DIRS) {
+            const x = d.x + dx;
+            const y = d.y + dy;
+            const cell = DC.cellAt(f, x, y);
+            if (!cell || !['floor', 'start'].includes(cell.type) || !g.isCellShown(x, y)) continue;
+            const el = this.tileEls[y * f.w + x];
+            el.classList.add('tut-target', 'tut-here');
+            if (!el.querySelector('.tut-arrow')) el.insertAdjacentHTML('beforeend', '<i class="tut-arrow" aria-hidden="true">▼</i>');
           }
+        }
+      } else if (focus === 'stairs') {
+        // A escada pulsa com uma setinha em cima (só depois de a sala dela aparecer).
+        const x = f.exit.x;
+        const y = f.exit.y;
+        if (g.isCellShown(x, y)) {
+          const el = this.tileEls[y * f.w + x];
+          el.classList.add('tut-target', 'tut-here');
+          if (!el.querySelector('.tut-arrow')) el.insertAdjacentHTML('beforeend', '<i class="tut-arrow" aria-hidden="true">▼</i>');
         }
       } else if (focus === 'target') {
         for (const t of g.adjacentTargets()) this.tileEls[t.y * f.w + t.x].classList.add('tut-target');
@@ -1803,7 +2197,15 @@
         const tx = t.text(this.coachCtx());
         const wait = !tx.done;
         cls += wait ? ' wait' : ' done';
-        html = `<div class="coach-head"><span>Tutorial · passo ${t.index + 1} de ${t.steps.length}</span><span class="dots">${this.stepDots()}</span></div>
+        if (step.spots && ((wait && step.spots.some((sp) => sp.silent)) || this.introWant() === 'spot')) {
+          // O passo fala por foco e texto digitado: o cartão só guarda o progresso, o "pular" e,
+          // com o passo concluído, o "Próximo".
+          cls += ' mini';
+          html = `<div class="coach-head"><span>Tutorial · passo ${t.index + 1} de ${t.steps.length}</span><span class="dots">${this.stepDots()}</span></div>
+            <div class="coach-actions"><button class="link" data-coach="skip">Pular tutorial</button>${
+              wait ? '' : `<button class="btn small primary" data-coach="next">${tx.next} →</button>`
+            }</div>`;
+        } else html = `<div class="coach-head"><span>Tutorial · passo ${t.index + 1} de ${t.steps.length}</span><span class="dots">${this.stepDots()}</span></div>
           <h3>${tx.title}</h3>
           <p>${tx.done ? `<span class="check">✓</span> ${tx.doneBody}` : tx.body}</p>
           ${wait ? '<p class="coach-wait muted">Avança quando você fizer a ação.</p>' : ''}
@@ -1825,7 +2227,9 @@
       el.className = cls;
       el.hidden = !html;
       el.innerHTML = html;
-      this.el.hand.classList.toggle('tut-pulse', this.tourFocus() === 'hand');
+      // A mão pulsa quando o passo pede uma carta; no aviso das portas, enquanto nenhuma foi escolhida.
+      const askCard = this.introWant() === 'spot' && this.currentSpot().pulse === 'hand' && this.sel.length === 0;
+      this.el.hand.classList.toggle('tut-pulse', this.tourFocus() === 'hand' || askCard);
     }
 
     onCoachClick(e) {
@@ -1855,21 +2259,26 @@
 
     // O tutorial mudou de passo (ou acabou): redesenha o cartão, a janela e os destaques.
     tourChanged() {
+      // O tutorial acabou (ou foi pulado) no andar de treino: segue para a masmorra de verdade.
+      if (this.game.tutorial && !this.tutor.active) {
+        this.newGame(this.nextSeed);
+        return;
+      }
       this.renderCoach();
       this.renderOverlay();
       this.updateHighlights();
       this.checkHints();
       this.renderCoach();
+      this.syncIntro();
     }
 
     startTour() {
-      this.help = false;
-      this.hint = null;
+      const g = this.game;
+      const midGame = !g.tutorial && g.status === 'playing' && (this.stats.moves > 0 || g.floorNo > 1);
+      if (midGame && !window.confirm('Isso começa o treino e abandona a partida atual. Continuar?')) return;
       this.tutor.restart();
-      this.sel = [];
-      this.renderHand();
-      this.renderPanel();
-      this.tourChanged();
+      if (!g.tutorial) this.nextSeed = null;
+      this.newGame(null, true);
     }
 
     // Aviso para telas pequenas: o layout foi pensado para computador e tablet.
@@ -1959,16 +2368,15 @@
       if (this.help) kind = 'help';
       else if (this.reportView) kind = 'report';
       else if (this.busy) kind = '';
-      else if (this.tutor.step && this.tutor.step.id === 'goal') kind = 'tutorial'; // antes da reposição do 1º andar
       else if (g.status === 'won' || g.status === 'lost') kind = g.status;
       else if (g.pending) kind = g.pending.type;
       else if (this.tutor.step && this.tutor.step.kind === 'modal') kind = 'tutorial';
       // Os efeitos de entrada tocam só quando a janela aparece, e não a cada clique dentro dela.
       this.overlayFresh = kind !== this.lastOverlay;
       this.lastOverlay = kind;
-      // A dica da janela (reposição, combate, baú) vale uma vez e fica enquanto ela estiver aberta.
+      // A dica da janela (combate, baú) vale uma vez e fica enquanto ela estiver aberta.
       if (this.overlayFresh) {
-        const tipKind = ['refill', 'combat', 'chest'].includes(kind) && !(kind === 'refill' && g.pending.reason === 'floor');
+        const tipKind = kind === 'chest';
         this.tipHTML = tipKind ? this.tutor.tip(kind) : '';
       }
 
@@ -1990,6 +2398,22 @@
       if (kind === 'chest') {
         this.chestFx();
         this.sound('chest');
+      } else if (kind === 'refill') {
+        // Um som para cada carta que vira.
+        if (this.fxOn) root.querySelectorAll('.reveal-slot').forEach((_, i) => setTimeout(() => this.sound('draw', 0.2 + i * 0.05), 700 + i * 650 + 300));
+        // A carta extra da soma exata é um bônus: quando termina de virar, brilha, solta faíscas e toca um "ding".
+        const bonus = root.querySelector('.reveal-slot.extra');
+        if (bonus && this.fxOn) {
+          setTimeout(() => {
+            const card = bonus.querySelector('.front');
+            if (!card || this.lastOverlay !== 'refill') return;
+            const c = centerOf(card.getBoundingClientRect());
+            this.ring(c.x, c.y);
+            this.burst(c.x, c.y, { count: 22, spread: 95, color: '#ffd76a' });
+            this.floatText('+1 carta', c.x, c.y - 90, 'gold');
+            this.sound('ding', 0.4);
+          }, 1250);
+        }
       } else if (kind === 'won' || kind === 'lost') {
         this.rain(kind === 'won');
         this.sound(kind === 'won' ? 'win' : 'lose');
@@ -2002,20 +2426,38 @@
         .join('');
     }
 
+    // Cartas ganhas ao abrir uma porta que dá numa sala nova (ou ao descer de andar): aparecem de costas
+    // e viram uma a uma. Se a soma foi exata, a carta de graça vem junto e vira primeiro. Sem escolhas:
+    // o jogo já sabe quais são (o topo do deck) e só passam para a mão ao tocar no botão.
     refillHTML() {
       const g = this.game;
-      const out = [...this.discard].filter((id) => g.hand.some((c) => c.id === id));
-      const keep = g.hand.length - out.length;
-      const draws = Math.min(g.config.refillDraw, g.config.handMax - keep, g.playerDeck.length);
+      const gain = g.refillPreview();
       const floorStart = g.pending.reason === 'floor';
       const title = floorStart ? `Andar ${g.floorNo}` : 'Porta aberta: sala nova!';
-      return `<div class="modal">
+      const anim = this.overlayFresh && this.fxOn;
+      const slots = gain
+        .map(({ card, extra }, i) => {
+          const tag = extra ? 'Carta extra: soma exata!' : floorStart ? 'Novo andar' : 'Sala nova';
+          return `<div class="reveal-slot${extra ? ' extra' : ''}" style="--k:${i}">
+            ${extra ? '<span class="reveal-badge">+1 BÔNUS</span>' : ''}
+            <div class="flip${anim ? ' anim' : ''}">
+              <div class="card back"></div>
+              ${cardHTML(card, { extra: 'front' })}
+            </div>
+            <span class="reveal-tag">${tag}</span>
+          </div>`;
+        })
+        .join('');
+      let note;
+      if (gain.length) note = gain.length === 1 ? 'Você ganha <b>1 carta</b>.' : `Você ganha <b>${gain.length} cartas</b>.`;
+      else if (g.hand.length >= g.config.handMax) note = `Sua mão está cheia (${g.config.handMax}): nenhuma carta nova desta vez.`;
+      else note = 'O seu deck acabou: não há cartas para ganhar.';
+      return `<div class="modal reveal">
         <h2>${title}</h2>
-        <p>Marque as cartas que quer <b>descartar</b> (se quiser) e você compra <b>${g.config.refillDraw} ${g.config.refillDraw === 1 ? 'carta' : 'cartas'}</b>, sem passar do limite de ${g.config.handMax} na mão.</p>
-        <div class="cardrow">${g.hand.length ? this.handRow('toggle-discard', this.discard) : '<p class="muted">Sua mão está vazia.</p>'}</div>
-        ${this.stashModalHTML()}
-        <div class="summary">Descartando ${out.length} · comprando ${draws} · mão final ${keep + draws}/${g.config.handMax} · deck: ${g.playerDeck.length}</div>
-        <div class="actions"><button class="btn primary" data-ov="confirm-refill">Repor mão</button></div>
+        <p>${note}</p>
+        <div class="reveal-row">${slots}</div>
+        <div class="summary">Mão: ${g.hand.length} → ${g.hand.length + gain.length}/${g.config.handMax} · deck: ${g.playerDeck.length - gain.length}</div>
+        <div class="actions"><button class="btn primary" data-ov="confirm-refill">${gain.length ? 'Pegar as cartas' : 'Continuar'}</button></div>
       </div>`;
     }
 
@@ -2023,7 +2465,7 @@
     combatHTML() {
       const g = this.game;
       const enemy = g.combatEnemy();
-      const { html: selHTML, sum, cards } = this.selectionHTML(true);
+      const { html: selHTML, sum, cards, exact } = this.selectionHTML(true);
       const flipped = this.revealIds;
       this.revealIds = [];
       const enemyRow = enemy.cards
@@ -2055,17 +2497,28 @@
         : 'Fugir (escolha 1 carta para descartar)';
       const hit = this.foeHit;
       this.foeHit = false;
+      const stash = g.slotsOpen
+        ? `<div class="combat-stash"><div class="stash-row modal-stash">${this.slotsInner()}</div><h4>Inventário ${g.stash.length}/${g.slotsOpen}</h4></div>`
+        : '<div></div>';
       return `<div class="modal combat">
         <h2>⚔ Combate!</h2>
-        <div class="foe"><i class="sprite enemy-sprite k-${enemy.kind}${hit ? ' hit' : ''}"></i></div>
-        <p>${this.isTouch() ? 'Toque' : 'Escolha'} em cartas da mão cuja <b>soma</b> seja pelo menos o custo de <b>uma</b> carta do inimigo e ${this.isTouch() ? 'toque' : 'clique'} nela para derrubá-la. <b>Soma exata</b> compra 1 carta. Derrotando as ${enemy.cards.length} cartas você vence e compra 1 carta.${
-          enemy.hidden && enemy.hidden.length ? ' Uma carta está <b>virada de costas</b>: ela aparece quando você derrubar a outra.' : ''
-        }</p>
-        <div class="cardrow enemy-row">${enemyRow}</div>
-        <h4>Sua mão</h4>
-        <div class="cardrow">${handRow || '<p class="muted">Sua mão está vazia.</p>'}</div>
-        ${this.stashModalHTML()}
-        <div class="combat-sel">${cards.length ? selHTML : '<p class="muted">Escolha cartas da mão. Poderes de ♥ e ♠ funcionam aqui.</p>'}</div>
+        <p class="combat-help">${this.isTouch() ? 'Toque' : 'Escolha'} cartas da mão cuja <b>soma</b> seja pelo menos o custo de <b>uma</b> carta do inimigo e ${this.isTouch() ? 'toque' : 'clique'} nela para derrubá-la. <b>Soma exata</b> compra 1 carta; derrotar todas as ${enemy.cards.length} compra 1 e vence.</p>
+        <div class="combat-foe">
+          <div class="foe-box">
+            <div class="foe"><i class="sprite enemy-sprite k-${enemy.kind}${hit ? ' hit' : ''}"></i></div>
+            <span class="foe-name">${ENEMY_NAME[enemy.kind] || 'Inimigo'}</span>
+          </div>
+          <div class="cardrow enemy-row">${enemyRow}</div>
+        </div>
+        <div class="combat-mine">
+          <div class="combat-power power">${this.powerHTML()}</div>
+          <div class="combat-hand">
+            <div class="cardrow">${handRow || '<p class="muted">Sua mão está vazia.</p>'}</div>
+            <h4>Sua mão</h4>
+          </div>
+          ${stash}
+        </div>
+        <div class="combat-sel${exact ? ' exact' : ''}">${cards.length ? selHTML : '<p class="muted">Escolha cartas da mão. Poderes de ♥ e ♠ funcionam aqui.</p>'}</div>
         <div class="actions">
           <button class="btn ${last && pick ? 'danger' : ''}" data-ov="flee" ${pick ? '' : 'disabled'}>${fleeLabel}</button>
           <button class="btn" data-act="clear" ${cards.length ? '' : 'disabled'}>Limpar seleção</button>
@@ -2101,6 +2554,16 @@
 
     endHTML(won) {
       const g = this.game;
+      if (g.tutorial) {
+        return `<div class="modal ${won ? 'win' : 'lose'}">
+          <h2>${won ? 'Treino concluído!' : 'Sem ações possíveis'}</h2>
+          <p>${won ? 'Agora é a masmorra de verdade: 5 andares, inimigos e muito naipe.' : 'Acabaram as cartas do treino. Tente de novo, desta vez com mais calma.'}</p>
+          <div class="actions">
+            <button class="btn ${won ? '' : 'primary'}" data-ov="tour-retry">Refazer o treino</button>
+            ${won ? '<button class="btn primary" data-ov="tour-play">Jogar de verdade</button>' : ''}
+          </div>
+        </div>`;
+      }
       return `<div class="modal ${won ? 'win' : 'lose'}">
         <h2>${won ? 'Você escapou da masmorra!' : 'Sem ações possíveis'}</h2>
         <p>${
@@ -2148,11 +2611,11 @@
         <h4>Inimigos</h4>
         <p>Um inimigo parado guarda uma sala, com <b>2 cartas</b> (<b>3 nos andares mais fundos</b>, os de foice e de manto): cada uma é como o custo de uma porta, mas <b>uma delas começa virada de costas</b> e só aparece quando você derruba outra. Há uma <b>zona vermelha</b> ao redor: a maioria tem 1 casa de alcance, mas <b>uns 30% têm alcance 2</b> e podem trancar a sala, aí só dá para passar lutando (ou fugindo). Os inimigos gastam as cartas que sobram no deck da dungeon depois das portas e dos baús, então o contador "Cartas da dungeon" mostra o que ainda cobra algo (portas, baús e cartas de inimigos). Se o seu caminho entra na zona, o movimento é cortado e começa o <b>combate</b>: escolha cartas da mão cuja soma seja pelo menos o custo de uma carta dele e derrube-a (soma exata compra 1 carta); os poderes de ♥ e ♠ funcionam ali. Derrotando as 2 cartas você vence e compra 1 carta. Dá para <b>fugir</b> descartando 1 carta (você volta para fora da zona e as cartas já derrubadas continuam derrubadas), mas se for a sua última carta você perde.</p>
         <h4>Pergaminho de Inventário</h4>
-        <p>Cada inimigo tem <b>30% de chance</b> de deixar um pergaminho <b>no lugar da carta de vitória</b>, e <b>30% dos baús</b> o guardam <b>no lugar das cartas</b>. Você já começa com <b>1 slot de brinde</b>, e cada pergaminho abre mais um (até 3 no total) ao lado da mão, onde você <b>guarda cartas</b> para usar depois. Para guardar, escolha 1 carta da mão e toque num slot livre (na reposição e no baú, marque a carta e toque no slot: ela é guardada em vez de descartada). Toque na carta guardada para devolvê-la à mão. Guardar e devolver é grátis, a qualquer momento, até em combate, mas para <b>usar</b> a carta ela precisa estar na mão (o limite de 5 continua). Se a mão esvaziar mas houver cartas nos slots, você ainda não perdeu.</p>
+        <p>Cada inimigo tem <b>30% de chance</b> de deixar um pergaminho <b>no lugar da carta de vitória</b>, e <b>30% dos baús</b> o guardam <b>no lugar das cartas</b>. Você já começa com <b>1 slot de brinde</b>, e cada pergaminho abre mais um (até 3 no total) ao lado da mão, onde você <b>guarda cartas</b> para usar depois. Para guardar, escolha 1 carta da mão e toque num slot livre (no baú, marque a carta e toque no slot: ela é guardada em vez de descartada). Toque na carta guardada para devolvê-la à mão. Guardar e devolver é grátis, a qualquer momento, até em combate, mas para <b>usar</b> a carta ela precisa estar na mão (o limite de 5 continua). Se a mão esvaziar mas houver cartas nos slots, você ainda não perdeu.</p>
         <h4>No iPad (toque)</h4>
         <p>Toque numa carta para escolher (toque de novo para soltar). Toque numa casa dourada para <b>ver o caminho</b> e toque <b>de novo na mesma casa</b> para andar, assim um toque errado não gasta a carta. Toque numa porta ou baú ao seu lado para abrir. <b>Arraste o mapa com o dedo</b> para olhar outras salas; o botão ◎ volta para o personagem.</p>
         <h4>Salas novas</h4>
-        <p>Ao abrir a porta de uma sala nova (ou ao descer de andar) você pode descartar cartas e então compra ${this.game.config.refillDraw}, sem passar do limite de ${this.game.config.handMax} na mão. Se a porta foi aberta com soma exata, você ainda ganha mais uma carta de graça.</p>
+        <p>Ao abrir a porta de uma sala nova (ou ao descer de andar) você ganha ${this.game.config.refillDraw} carta do seu deck, sem passar do limite de ${this.game.config.handMax} na mão: ela aparece de costas e vira. Se a porta foi aberta com soma exata, você ainda ganha mais uma carta de graça, que vira junto.</p>
         <h4>Atalhos</h4>
         <p>Teclas 1–5 selecionam cartas da mão; Esc limpa a seleção; F liga/desliga a névoa; E liga/desliga os efeitos; M liga/desliga o som; A alterna a arte de pixel art; + e − aproximam e afastam o mapa; C centraliza no personagem.</p>
         ${this.artAvailable ? '<p class="muted">Arte do mapa, dos inimigos e do herói: pixel art de <b>Pixel_Poem</b> (pixel-poem.itch.io).</p>' : ''}
