@@ -265,6 +265,8 @@
         if (card) this.toggleCard(card.dataset.id);
       });
       this.el.stash.addEventListener('click', (e) => {
+        const bag = e.target.closest('[data-item]');
+        if (bag) return this.useItemClick(bag.dataset.item);
         const slot = e.target.closest('.stash-slot');
         if (slot) this.onSlotClick(slot);
       });
@@ -1018,6 +1020,7 @@
 
     toggleCard(id) {
       if (this.busy || !(this.game.canAct() || this.game.canFight())) return;
+      if (this.game.pending && this.game.pending.frozen === id) return this.toast('Essa carta está congelada até você derrubar uma carta do inimigo.');
       const at = this.sel.indexOf(id);
       if (at >= 0) this.sel.splice(at, 1);
       else this.sel.push(id);
@@ -1366,8 +1369,40 @@
 
     renderStash() {
       const g = this.game;
-      this.el.stash.innerHTML = `<div class="stash-label">Inventário ${g.slotsOpen ? `${g.stash.length}/${g.slotsOpen}` : 'bloqueado'}</div><div class="stash-row">${this.slotsInner()}</div>`;
+      this.el.stash.innerHTML = `<div class="stash-label">Inventário ${g.slotsOpen ? `${g.stash.length}/${g.slotsOpen}` : 'bloqueado'}</div><div class="stash-row">${this.slotsInner()}</div>${this.bagHTML()}`;
       this.newSlot = -1;
+    }
+
+    // Bolsa de poções e pergaminhos (experimento Rogue): toque para usar. O efeito só é descoberto usando.
+    bagHTML() {
+      const g = this.game;
+      if (g.tutorial) return '';
+      const R = DC.ROGUE;
+      let chips = '';
+      for (let i = 0; i < g.config.maxItems; i++) {
+        const item = g.items[i];
+        if (!item) {
+          chips += '<div class="bag-slot" title="Espaço livre da bolsa"></div>';
+          continue;
+        }
+        const def = R.ITEMS[item.item];
+        const known = g.identified.has(item.item);
+        const short = known ? def.name : g.looks[item.item];
+        const tip = `${R.itemName(g, item.item)}: ${known ? def.text : 'efeito desconhecido, descubra usando'}. Toque para usar.`;
+        chips += `<button class="bag-slot item ${def.kind}${known ? ' known' : ''}" data-item="${item.id}" title="${tip}"><i>${R.ICON[def.kind]}</i><span>${short}</span></button>`;
+      }
+      return `<div class="stash-label">Bolsa ${g.items.length}/${g.config.maxItems}</div><div class="bag-row">${chips}</div>`;
+    }
+
+    useItemClick(id) {
+      const g = this.game;
+      if (this.busy || !g.canAct()) return this.toast('Não dá para usar itens agora.');
+      const res = g.useItem(id);
+      if (!res.ok) return this.reject(res.error);
+      this.sound('ding', 0.12);
+      this.toastOk(`${res.discovered ? 'Você descobriu: ' : ''}${res.name}. ${res.text}`);
+      this.sel = [];
+      this.renderAll();
     }
 
     // Os slots também aparecem dentro das janelas (baú e combate), onde a mão fica coberta.
@@ -2507,7 +2542,11 @@
         .join('');
       const handRow = g.hand
         .map((c) =>
-          cardHTML(c, { selected: this.sel.includes(c.id), badge: this.cardBadge(c) }).replace('class="card', 'data-ov="combat-toggle" class="card'),
+          cardHTML(c, {
+            selected: this.sel.includes(c.id),
+            badge: g.pending.frozen === c.id ? '❄ congelada' : this.cardBadge(c),
+            extra: g.pending.frozen === c.id ? 'frozen' : '',
+          }).replace('class="card', 'data-ov="combat-toggle" class="card'),
         )
         .join('');
       const last = g.hand.length === 1;
@@ -2527,6 +2566,7 @@
           <div class="foe-box">
             <div class="foe"><i class="sprite enemy-sprite k-${enemy.kind}${hit ? ' hit' : ''}"></i></div>
             <span class="foe-name">${ENEMY_NAME[enemy.kind] || 'Inimigo'}</span>
+            ${this.abilityHTML(enemy)}
           </div>
           <div class="cardrow enemy-row">${enemyRow}</div>
         </div>
@@ -2544,6 +2584,15 @@
           <button class="btn" data-act="clear" ${cards.length ? '' : 'disabled'}>Limpar seleção</button>
         </div>
       </div>`;
+    }
+
+    // Habilidade do inimigo (experimento Rogue), com o que ela já fez neste combate.
+    abilityHTML(enemy) {
+      if (!enemy.ability) return '';
+      const a = DC.ROGUE.ABILITIES[enemy.ability];
+      let extra = '';
+      if (enemy.ability === 'nymph') extra = enemy.loot ? ` Roubou ${label(enemy.loot)}.` : ' Você não tinha carta guardada.';
+      return `<span class="foe-ability" title="${a.text}"><b>${a.name}</b> ${a.text}${extra}</span>`;
     }
 
     chestHTML() {
