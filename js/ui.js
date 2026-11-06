@@ -2552,12 +2552,19 @@
       </div>`;
     }
 
+    // Dica da derrota (depende de como acabou); some com "Desligar dicas".
+    lossTipHTML() {
+      if (!this.tutor.saved.hints) return '';
+      return `<div class="tip"><b>Dica:</b> ${DC.lossHint(this.game)}</div>`;
+    }
+
     endHTML(won) {
       const g = this.game;
       if (g.tutorial) {
         return `<div class="modal ${won ? 'win' : 'lose'}">
           <h2>${won ? 'Treino concluído!' : 'Sem ações possíveis'}</h2>
           <p>${won ? 'Agora é a masmorra de verdade: 5 andares, inimigos e muito naipe.' : 'Acabaram as cartas do treino. Tente de novo, desta vez com mais calma.'}</p>
+          ${won ? '' : this.lossTipHTML()}
           <div class="actions">
             <button class="btn ${won ? '' : 'primary'}" data-ov="tour-retry">Refazer o treino</button>
             ${won ? '<button class="btn primary" data-ov="tour-play">Jogar de verdade</button>' : ''}
@@ -2571,6 +2578,7 @@
             ? `Os ${g.config.floors} andares ficaram para trás.`
             : `Você ficou sem cartas para fazer o próximo movimento no andar ${g.floorNo}.`
         }</p>
+        ${won ? '' : this.lossTipHTML()}
         <div class="summary">Deck: ${g.playerDeck.length} · mão: ${g.hand.length} · descarte: ${g.discard.length} · seed ${g.seed}</div>
         <div class="playtest">
           <h4>Playtest (opcional)</h4>

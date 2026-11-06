@@ -256,6 +256,15 @@
       chest: 'Escolha até 2 das cartas reveladas para levar. As outras voltam para o deck.',
     },
 
+    // Dica na tela de derrota, conforme o que levou a ela (ver lossHint).
+    lossHints: {
+      handOut: 'Lembre-se de usar cartas de espadas para repor sua mão!',
+      deckOut: 'Seu deck zerou! Use cartas de copas ♥ para devolver cartas do descarte para o deck antes que ele acabe.',
+      flee: 'Fugir custa uma carta. Com a mão curta, vale mais contornar a zona vermelha ou lutar pela soma exata.',
+      combat: 'Em combate, tente a soma exata: ela compra 1 carta de graça. E reponha a mão com espadas ♠ antes de lutar!',
+      fallback: 'Cada passo custa uma carta. Planeje o caminho e gaste as cartas com cuidado.',
+    },
+
     notice: 'O Deck Crawly é melhor no <b>computador ou tablet</b>. Em telas pequenas as cartas ficam apertadas.',
 
     // Perguntas opcionais no fim da partida (as respostas vão junto no relatório).
@@ -549,7 +558,17 @@
     return 'não iniciado';
   }
 
+  // A dica certa para a tela de derrota, olhando como a partida acabou.
+  function lossHint(game) {
+    const h = TEXT.lossHints;
+    if (game.lostBy === 'flee') return h.flee;
+    if (game.lostBy === 'combat') return h.combat;
+    if (!game.playerDeck.length) return game.discard.length ? h.deckOut : h.fallback;
+    return h.handOut;
+  }
+
   DC.TUTORIAL_TEXT = TEXT;
+  DC.lossHint = lossHint;
   DC.Tutorial = Tutorial;
   DC.Stats = Stats;
   DC.buildReport = buildReport;

@@ -351,6 +351,8 @@
       if (this.status !== 'playing' || (this.pending && this.pending.type !== 'combat')) return;
       if (!this.hasAnyAction()) {
         this.status = 'lost';
+        // Como acabou, para a dica da tela de derrota: em combate, fugindo com a última carta ou simplesmente sem cartas.
+        this.lostBy = this.pending && this.pending.type === 'combat' ? 'combat' : this.fled ? 'flee' : 'empty';
         this.log('Sem cartas para fazer qualquer ação. Fim de jogo.', 'bad');
       }
     }
@@ -634,7 +636,9 @@
       this.player = { x: this.pending.from.x, y: this.pending.from.y };
       this.pending = null;
       this.log(`Você foge descartando ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[card.suit]}.`);
+      this.fled = true;
       this.afterAction();
+      this.fled = false;
       return { ok: true, lost: this.status === 'lost' };
     }
 
