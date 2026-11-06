@@ -61,13 +61,33 @@
   const remainingEnemyCards = (enemy) => enemy.cards.filter((c) => !enemy.down.includes(c.id));
   const isHiddenCard = (enemy, card) => Boolean(enemy.hidden) && enemy.hidden.includes(card.id);
   const MINI_BACK = '<span class="mini back"></span>';
+
+  // Visual clássico (sem a pixel art): a escada de entrada parece vir de cima (luz e degraus que descem até você)
+  // e a de saída é um buraco escuro com degraus que afundam. Com a arte, valem as peças de js/art.js.
+  const STAIR_UP_SVG = `<svg class="stair up" viewBox="0 0 32 32" aria-hidden="true">
+    <defs><linearGradient id="stair-light" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff6c2" stop-opacity="0.95"/><stop offset="0.7" stop-color="#fff6c2" stop-opacity="0.12"/><stop offset="1" stop-color="#fff6c2" stop-opacity="0"/></linearGradient></defs>
+    <rect width="32" height="32" fill="url(#stair-light)"/>
+    <rect x="9" y="0" width="14" height="3" fill="#ffffff" opacity="0.9"/>
+    <path d="M11 3h10l1 5H10z" fill="#efe6cc"/><path d="M10 8h12l1 1.6H9z" fill="#8b7d62"/>
+    <path d="M9 9.6h14l1 5.4H8z" fill="#e2d6b8"/><path d="M8 15h16l1 1.6H7z" fill="#7d6f55"/>
+    <path d="M7 16.6h18l1 5.4H6z" fill="#d4c7a8"/><path d="M6 22h20l1 1.6H5z" fill="#6f6249"/>
+    <path d="M5 23.6h22l1 6.4H4z" fill="#c6b999"/>
+  </svg>`;
+  const STAIR_DOWN_SVG = `<svg class="stair down" viewBox="0 0 32 32" aria-hidden="true">
+    <defs><linearGradient id="stair-dark" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity="0.1"/><stop offset="1" stop-color="#000" stop-opacity="0.85"/></linearGradient></defs>
+    <path d="M4 3h24v5H4z" fill="#cfc3a8"/><path d="M4 8h24v1.6H4z" fill="#6f6249"/>
+    <path d="M7 9.6h18v5H7z" fill="#a89c82"/><path d="M7 14.6h18v1.6H7z" fill="#5a4f3b"/>
+    <path d="M10 16.2h12v5H10z" fill="#7d725c"/><path d="M10 21.2h12v1.6H10z" fill="#43392b"/>
+    <path d="M12 22.8h8v5H12z" fill="#4f4637"/>
+    <rect width="32" height="32" fill="url(#stair-dark)"/>
+  </svg>`;
   const ENEMY_NAME = { skeleton1: 'Skelly', skeleton2: 'Esqueleto', vampire: 'Vampiro' };
 
   // O zoom é um múltiplo do tamanho que faz a masmorra inteira caber na tela.
   const ZOOMS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3];
   const DEFAULT_ZOOM = 3; // índice em ZOOMS: 1.75x
   const LOW_DECK = 5; // com tantas cartas ou menos, o deck do jogador pisca como aviso
-  const PAN_GAP = 3; // folga escura (em casas) que dá para arrastar além da borda do mapa
+  const PAN_GAP = 10; // folga escura (em casas) que dá para arrastar além da borda do mapa
 
   class UI {
     constructor() {
@@ -1663,13 +1683,13 @@
             }
             case 'start':
               cls = 't-floor start';
-              inner = art ? '' : '▲';
-              title = 'Escada de entrada';
+              inner = art ? '' : STAIR_UP_SVG; // com a arte, a peça da escada já vem no fundo da casa
+              title = 'Escada de entrada (você desceu por aqui)';
               break;
             case 'exit':
               cls = 't-floor exit';
-              inner = art ? '' : '▼';
-              title = 'Escada de saída';
+              inner = art ? '' : STAIR_DOWN_SVG;
+              title = 'Escada de saída (desce para o próximo andar)';
               break;
             case 'door': {
               const d = f.doors[cell.ref];
@@ -1731,7 +1751,7 @@
         this.view = null;
       }
       // Seguindo o personagem, o mapa não sai das bordas. Arrastando, sobra uma folga
-      // escura de 3 casas em volta, para a borda não ficar presa no canto da tela.
+      // escura de 10 casas em volta, para a borda não ficar presa no canto da tela.
       const gap = PAN_GAP * this.tile;
       const axis = (size, total, pos, dragged) => {
         if (total <= size) return (size - total) / 2;

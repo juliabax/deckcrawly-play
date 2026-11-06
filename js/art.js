@@ -12,6 +12,7 @@
     // Cópia da folha com o fundo transparente (scripts/tileset_alpha.py), para empilhar peças.
     tiles: `${BASE}Dungeon_Tileset_v2_alpha.png`, // 10 x 10 peças de 16 px
     props: `${BASE}Dungeon_item_props_v2.png`,
+    stairUp: `${BASE}escada-origem.png`, // escada de entrada, feita pela Julia (1 peça de 16 px)
     chest: `${BASE}chest_1.png`, // 4 quadros de 16 px
     hero: `${BASE}Dungeon_Character.png`, // 7 x 4 peças de 16 px
     skeleton1: `${BASE}enemies-skeleton1_idle.png`, // quadros de 32 px
@@ -45,7 +46,7 @@
   };
 
   // Tamanho de cada folha, em peças de 16 px.
-  const SHEET_SIZE = { tiles: [10, 10], props: [12, 5] };
+  const SHEET_SIZE = { tiles: [10, 10], props: [12, 5], stairUp: [1, 1] };
 
   // Mistura estável de duas coordenadas (o mesmo mapa sempre sai com a mesma decoração).
   const hash = (x, y) => (Math.imul(x + 1, 73856093) ^ Math.imul(y + 1, 19349663)) >>> 0;
@@ -104,8 +105,10 @@
       case 'floor':
       case 'chest':
         return one('tiles', floorSprite(x, y));
+      // A escada de entrada tem peça própria (assets/pixel/escada-origem.png, por cima do piso): a da folha
+      // só tem degraus de descida, e a entrada precisa parecer vir de cima.
       case 'start':
-        return one('tiles', TILE.stairsUp);
+        return [{ sheet: 'stairUp', c: 0, r: 0 }, ...one('tiles', floorSprite(x, y))];
       case 'exit':
         return one('tiles', TILE.stairsDown);
       case 'door':
