@@ -2080,3 +2080,82 @@ html:not(.touch) .link:hover {
   font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
   resize: vertical;
 }
+
+/* botão do poder (♥ e ♠), ao lado esquerdo da mão */
+.power {
+  width: 150px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding-bottom: 10px;
+}
+
+.power-label {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+}
+
+.power-empty {
+  min-height: 88px;
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  border: 2px dashed var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.power-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-height: 88px;
+  padding: 8px 6px;
+  border-color: var(--accent);
+  background: linear-gradient(180deg, #3a2c52, var(--panel));
+  box-shadow: 0 0 14px rgba(231, 184, 74, 0.3);
+}
+
+.power-btn b {
+  font-size: 30px;
+  line-height: 1;
+  color: var(--text);
+}
+
+.power-btn.red b {
+  color: #ff8a8a;
+}
+
+.power-btn span {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.power-btn small {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.power-btn:disabled {
+  box-shadow: none;
+  border-color: var(--line);
+}
+
+@media (min-width: 600px) and (max-width: 900px) and (min-height: 700px) {
+  .power {
+    width: 96px;
+  }
+
+  .power-btn span {
+    font-size: 12px;
+  }
+}

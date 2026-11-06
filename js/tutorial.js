@@ -58,7 +58,7 @@
             <li><b>♦ Ouros:</b> ao andar, o número vale em <b>dobro</b>.</li>
             <li><b>♣ Paus:</b> <b>coringa</b>. Vale o próprio número ou copia o de outra carta da mão.</li>
           </ul>
-          <p class="muted">Escolha a carta e use o botão do poder que aparece no painel ao lado.</p>`,
+          <p class="muted">Escolha a carta e use o botão <b>Poder</b> que aparece ao lado esquerdo da mão.</p>`,
         next: 'Próximo',
       },
       {

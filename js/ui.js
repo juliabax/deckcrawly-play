@@ -84,6 +84,7 @@
         seed: $('hud-seed'),
         fx: $('fx'),
         stash: $('stash'),
+        power: $('power'),
       };
       this.sel = [];
       this.busy = false;
@@ -241,6 +242,7 @@
         if (!this.isTouch()) this.clearPath();
       });
       this.el.panel.addEventListener('click', (e) => this.onPanelClick(e));
+      this.el.power.addEventListener('click', (e) => this.onPanelClick(e));
       this.el.overlay.addEventListener('click', (e) => this.onOverlayClick(e));
       this.el.overlay.addEventListener('input', (e) => {
         const note = e.target.closest('[data-note]');
@@ -1466,10 +1468,11 @@
           else if (c.suit === 'C' && g.jokerTarget(c)) why = ` (coringa copia ${label(g.jokerTarget(c))})`;
           html += `<p><b>Andar:</b> até ${range} casa(s)${why}.</p>`;
         }
-        if (c.suit === 'H') {
+        // Fora do combate o botão do poder fica ao lado da mão (renderPower); no combate, na janela.
+        if (combat && c.suit === 'H') {
           const n = this.powerCount(c);
           html += `<button class="btn" data-act="power" ${n ? '' : 'disabled'}>Usar ♥: devolver ${n} carta(s) do descarte ao deck</button>`;
-        } else if (c.suit === 'S') {
+        } else if (combat && c.suit === 'S') {
           const n = this.powerCount(c);
           html += `<button class="btn" data-act="power" ${n ? '' : 'disabled'}>Usar ♠: comprar ${n} carta(s)</button>`;
         }
@@ -1489,9 +1492,27 @@
       return { html, sum, cards };
     }
 
+    // Botão do poder (♥ e ♠) ao lado esquerdo da mão: aparece quando 1 carta dessas está escolhida.
+    renderPower() {
+      const g = this.game;
+      const cards = g.status === 'playing' ? g.handCards(this.sel) || [] : [];
+      const c = cards.length === 1 ? cards[0] : null;
+      let body;
+      if (c && (c.suit === 'H' || c.suit === 'S')) {
+        const n = this.powerCount(c);
+        const what = c.suit === 'H' ? `Devolver ${n} ao deck` : `Comprar ${n} carta${n === 1 ? '' : 's'}`;
+        body = `<button class="btn power-btn ${c.suit === 'H' ? 'red' : ''}" data-act="power" ${n ? '' : 'disabled'} title="${what}">
+          <b>${sym(c.suit)}</b><span>Usar poder</span><small>${n ? what : 'sem efeito agora'}</small></button>`;
+      } else {
+        body = '<div class="power-empty">Escolha uma carta ♥ ou ♠ para usar o poder</div>';
+      }
+      this.el.power.innerHTML = `<div class="power-label">Poder</div>${body}`;
+    }
+
     renderPanel() {
       const g = this.game;
       const panel = this.el.panel;
+      this.renderPower();
       if (g.status !== 'playing') {
         panel.innerHTML = '<h3>Fim de jogo</h3>';
         return;
