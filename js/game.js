@@ -3,7 +3,7 @@
 
   const DEFAULT_CONFIG = {
     floors: 5,
-    handMax: 5,
+    handMax: 7,
     chestOptions: 5,
     chestPicks: 2,
     refillDraw: 1, // cartas compradas ao entrar numa sala nova (sempre respeitando handMax)
@@ -20,7 +20,8 @@
     enemyRange: 1, // zona de ataque: casas em cruz ao redor dele
     enemyWideChance: 0.3, // chance de um inimigo ter o alcance maior (enemyWideRange) e tentar trancar a sala
     enemyWideRange: 2,
-    enemyHidden: 1, // cartas do inimigo viradas de costas (aparecem quando você derruba outra)
+    enemyHidden: 1, // cartas viradas de costas num inimigo que tem carta virada (aparecem quando você derruba outra)
+    enemyHiddenChance: 0.25, // chance de um inimigo ter carta virada: rara, para o ♠ ter 2 cartas à vista para atacar de uma vez
     // Pergaminho de Inventário: cada um abre 1 slot ao lado da mão, onde se guardam cartas.
     maxSlots: 3,
     startSlots: 1, // slots de inventário já liberados no começo (de brinde)
@@ -28,19 +29,46 @@
     itemDropChance: 0.35, // chance de um inimigo derrotado deixar um item
     abilityChance: [0.2, 0.5], // chance de um inimigo ter habilidade: no andar 1 e do andar 2 em diante
     scrollChance: 0.3, // chance de um inimigo (no lugar da carta de vitória) ou de um baú (no lugar das cartas) dar um pergaminho
+    // Experimento Baralho Finito: carta gasta não volta. A comida (Maçã e Bife) acrescenta cartas NOVAS
+    // (sorteadas como se saíssem de um baralho completo) em posições aleatórias do deck.
+    reinforceCards: 3, // cartas da Maçã
+    reinforceGoldCards: 5, // cartas do Bife
+    reinforceEnemyBase: 0.1, // chance de um inimigo deixar o pergaminho: este valor mais perPoint × soma das cartas dele
+    reinforceEnemyPerPoint: 0.015,
+    reinforceGoldEnemy: 0.25, // chance de ser dourado, para inimigos de 3 cartas ou mais
+    reinforceChestChance: 0.35, // chance de um baú guardar um pergaminho além das cartas
+    reinforceGoldChest: 0.2,
+    reinforceFloorChance: [0.8, 0.8, 0.7, 0.5, 0.4], // pergaminho no chão: chance por andar (o último valor vale para os seguintes)
+    reinforceGoldFloor: 0.15,
+    // Armadilhas escondidas: só aparecem quando você pisa. Cada uma dispara uma vez.
+    trapsPerFloor: [1, 1, 2, 2, 2], // por andar (o último valor vale para os seguintes)
+    trapBackShare: 0.4, // fração das armadilhas que mandam de volta ao andar anterior (as outras são de dardo)
+    trapDartCards: 2, // cartas do deck que o dardo queima
+    // Anéis: equipamento com 2 espaços; vêm de baús e de inimigos (mais difíceis, mais chance).
+    ringSlots: 2,
+    ringChestChance: 0.5,
+    ringEnemyBase: 0.04,
+    ringEnemyPerPoint: 0.006,
   };
 
   // Mão e custo da porta do andar de treino (ids do deck: p = jogador, d = dungeon).
   const TUTORIAL_HAND = ['pS5', 'pD4', 'pH3', 'pC6', 'pS2'];
   const TUTORIAL_DOOR = 'dC7';
   // Andar 2 do treino: a mão, as cartas que saem do deck (na ordem), o descarte e o inimigo da escada.
-  // Ao descer, o jogo ganha ♠3 e ♥2 (a janela do andar), usa o ♠ para comprar ♥9 e ♠5, e só então luta.
+  // Ao descer, o jogo ganha ♥3 e ♠4 (a janela do andar), usa o ♥ para comprar ♠6, ♦2 e ♣8, e só então luta:
+  // o ♠4 vale 8 em combate, exatamente os dois inimigos (5 + 3).
   const TUTORIAL2_HAND = ['pD4', 'pC3'];
-  const TUTORIAL2_TOP = ['pS3', 'pH2', 'pH9', 'pS5'];
-  const TUTORIAL2_DISCARD = ['pS6', 'pD7', 'pC8', 'pH5'];
-  const TUTORIAL2_ENEMY = ['dS5', 'dH3']; // a última começa virada de costas
+  const TUTORIAL2_TOP = ['pH3', 'pS4', 'pS6', 'pD2', 'pC8'];
+  const TUTORIAL2_DISCARD = ['pH5', 'pD7', 'pC9', 'pH8'];
+  const TUTORIAL2_ENEMY = ['dS5', 'dH3']; // as duas à vista: dá para derrubar as duas de uma vez com um ♠
 
   const fail = (error) => ({ ok: false, error });
+
+  // A comida que acrescenta cartas novas ao deck (experimento Baralho Finito): a comum e a dourada.
+  const FOOD = {
+    normal: { name: 'Maçã', a: 'uma Maçã' },
+    gold: { name: 'Bife', a: 'um Bife' },
+  };
 
   class Game {
     constructor(opts = {}) {
@@ -72,8 +100,21 @@
         keys.forEach((k, i) => (this.looks[k] = looks[i % looks.length]));
       }
 
+      // Experimento Baralho Finito: pergaminhos que dão cartas novas ao deck. Sorteio à parte (não muda a masmorra).
+      this.reinforceRng = DC.makeRng(`${this.seed}:reinforce`);
+      this.cardCount = 0; // cartas novas criadas por pergaminhos (ids únicos: o deck pode ter duplicatas)
+      this.owed = []; // pergaminhos achados que esperam a janela atual fechar
+      this.reinforced = 0; // total de cartas ganhas por pergaminhos (para o relatório)
+      this.trapRng = DC.makeRng(`${this.seed}:traps`);
+      this.hiddenRng = DC.makeRng(`${this.seed}:hidden`); // quais inimigos têm carta virada
+      this.ringRng = DC.makeRng(`${this.seed}:rings`); // quais baús e inimigos deixam anel, e qual
+      this.ringCount = 0;
+      this.rings = Array(this.config.ringSlots).fill(null); // anéis no dedo: { id, ring, charged }
+      this.seenRooms = {}; // salas visitadas de cada andar (ao voltar de uma armadilha, o mapa continua aberto)
+      this.arrived = new Set(); // andares já alcançados (só a primeira chegada dá cartas)
+
       this.status = 'playing'; // playing | won | lost
-      this.pending = null; // { type: 'refill' | 'chest' | 'combat', ... }
+      this.pending = null; // { type: 'refill' | 'chest' | 'combat' | 'reinforce', ... }
       this.logs = [];
       this.floorNo = 0;
       this.floors = []; // todos os andares, gerados no começo do jogo
@@ -121,7 +162,7 @@
 
     draw(count) {
       let drawn = 0;
-      while (drawn < count && this.hand.length < this.config.handMax && this.playerDeck.length) {
+      while (drawn < count && this.hand.length < this.handLimit() && this.playerDeck.length) {
         this.hand.push(this.playerDeck.pop());
         drawn++;
       }
@@ -146,6 +187,75 @@
       }
       this.planEnemies();
       this.planScrolls();
+      this.planReinforcements();
+      this.planTraps();
+      this.planRings();
+    }
+
+    // Sorteia (pela seed, num sorteio à parte) quais baús e inimigos deixam um anel, e qual (anéis comuns saem
+    // mais; o do Guerreiro, o da Mão e o do Deck são mais raros).
+    planRings() {
+      const cfg = this.config;
+      const rng = this.ringRng;
+      const rings = DC.ROGUE.RINGS;
+      const keys = Object.keys(rings);
+      const total = keys.reduce((n, k) => n + rings[k].weight, 0);
+      const pick = () => {
+        let roll = rng.next() * total;
+        for (const k of keys) {
+          roll -= rings[k].weight;
+          if (roll < 0) return k;
+        }
+        return keys[keys.length - 1];
+      };
+      for (const floor of this.floors) {
+        for (const enemy of floor.enemies) {
+          const points = enemy.cards.reduce((sum, c) => sum + c.rank, 0);
+          enemy.ring = rng.next() < cfg.ringEnemyBase + cfg.ringEnemyPerPoint * points ? pick() : null;
+        }
+        for (const chest of floor.chests) chest.ring = rng.next() < cfg.ringChestChance ? pick() : null;
+      }
+    }
+
+    // Sorteia (pela seed, num sorteio à parte) as armadilhas escondidas de cada andar.
+    planTraps() {
+      const cfg = this.config;
+      const rng = this.trapRng;
+      this.floors.forEach((floor, i) => {
+        floor.traps = [];
+        const count = cfg.trapsPerFloor[Math.min(i, cfg.trapsPerFloor.length - 1)];
+        const taken = new Set((floor.pickups || []).map((p) => `${p.x},${p.y}`));
+        for (let n = 0; n < count; n++) {
+          const spot = DC.placePickup(rng, floor, (x, y) => taken.has(`${x},${y}`));
+          if (!spot) break;
+          taken.add(`${spot.x},${spot.y}`);
+          // No andar 1 não há andar anterior: só dardo.
+          const back = i > 0 && rng.next() < cfg.trapBackShare;
+          floor.traps.push({ x: spot.x, y: spot.y, kind: back ? 'back' : 'dart', sprung: false });
+        }
+      });
+    }
+
+    // Sorteia (pela seed, num sorteio à parte) onde fica a comida (Maçã e Bife): com alguns inimigos
+    // (quanto mais difíceis, mais chance), em alguns baús e caídos no chão de algumas salas.
+    planReinforcements() {
+      const cfg = this.config;
+      const rng = this.reinforceRng;
+      const kind = (goldChance) => (rng.next() < goldChance ? 'gold' : 'normal');
+      this.floors.forEach((floor, i) => {
+        for (const enemy of floor.enemies) {
+          const points = enemy.cards.reduce((sum, c) => sum + c.rank, 0);
+          const chance = Math.min(0.9, cfg.reinforceEnemyBase + cfg.reinforceEnemyPerPoint * points);
+          enemy.reinforce = rng.next() < chance ? kind(enemy.cards.length >= cfg.enemyDeepCards ? cfg.reinforceGoldEnemy : 0) : null;
+        }
+        for (const chest of floor.chests) chest.reinforce = rng.next() < cfg.reinforceChestChance ? kind(cfg.reinforceGoldChest) : null;
+        const odds = cfg.reinforceFloorChance;
+        floor.pickups = [];
+        if (rng.next() < odds[Math.min(i, odds.length - 1)]) {
+          const spot = DC.placePickup(rng, floor);
+          if (spot) floor.pickups.push({ ...spot, gold: rng.next() < cfg.reinforceGoldFloor, taken: false });
+        }
+      });
     }
 
     // Sorteia (pela seed) quais inimigos e baús guardam um Pergaminho de Inventário.
@@ -246,18 +356,28 @@
     }
 
     // Ids das cartas do inimigo que começam viradas de costas (sempre sobra ao menos uma à vista).
+    // Só alguns inimigos têm carta virada (enemyHiddenChance). A escolha da carta continua saindo do
+    // sorteio principal e a decisão de esconder vem de um sorteio à parte: a masmorra não muda.
     hiddenCards(cards) {
       const count = Math.min(this.config.enemyHidden, cards.length - 1);
       if (count <= 0) return [];
-      return this.rng.shuffle(cards.slice()).slice(0, count).map((c) => c.id);
+      const ids = this.rng.shuffle(cards.slice()).slice(0, count).map((c) => c.id);
+      return this.hiddenRng.next() < this.config.enemyHiddenChance ? ids : [];
     }
 
     startFloor(n) {
       this.floorNo = n;
       this.floor = this.floors[n - 1];
       this.player = { x: this.floor.start.x, y: this.floor.start.y };
-      this.visited = new Set([this.floor.grid[this.player.y][this.player.x].room]);
-      if (n > 1) {
+      const first = !this.arrived.has(n);
+      this.arrived.add(n);
+      if (first) for (const r of this.rings) if (r) r.charged = true; // os anéis de naipe recarregam a cada andar novo
+      this.visited = this.seenRooms[n] || new Set([this.floor.grid[this.player.y][this.player.x].room]);
+      this.seenRooms[n] = this.visited;
+      if (!first) {
+        // Voltou a um andar que já conhecia (uma armadilha mandou para trás): não ganha cartas de novo.
+        this.log(`Você desce de novo para o andar ${n}.`);
+      } else if (n > 1) {
         // No treino, o andar 2 dá 2 cartas (♠ e ♥) para a pessoa aprender os poderes.
         if (this.tutorial) this.arrangeTutorialFloor2();
         this.pending = { type: 'refill', reason: 'floor', bonus: 0, draws: this.tutorial ? 2 : this.config.refillDraw };
@@ -309,7 +429,76 @@
     // ♦ dobra o número ao andar.
     walkRange(card) {
       const value = this.cardValue(card);
-      return card.suit === 'D' ? value * 2 : value;
+      return (card.suit === 'D' ? value * 2 : value) + this.ringBonus('walk');
+    }
+
+    // Em combate, ♠ vale o dobro (depois da Ferrugem tirar 1). Fora dele vale só o número.
+    attackValue(card) {
+      const value = this.cardValue(card);
+      return card.suit === 'S' ? value * 2 : value;
+    }
+
+    // A soma de uma jogada de combate inclui o bônus do Anel do Guerreiro.
+    attackSum(ids) {
+      const cards = this.handCards(ids);
+      return cards && cards.length ? cards.reduce((sum, c) => sum + this.attackValue(c), 0) + this.ringBonus('fight') : 0;
+    }
+
+    // A soma para pagar portas e baús inclui o bônus do Anel da Chave.
+    payTotal(ids) {
+      const cards = this.handCards(ids);
+      return cards && cards.length ? cards.reduce((sum, c) => sum + this.cardValue(c), 0) + this.ringBonus('pay') : 0;
+    }
+
+    // ---------- anéis ----------
+
+    // Soma dos bônus (walk, pay, fight, hand, deck) dos anéis no dedo.
+    ringBonus(stat) {
+      return this.rings.reduce((n, r) => {
+        const def = r && DC.ROGUE.RINGS[r.ring];
+        return n + (def && def.stat === stat ? def.amount : 0);
+      }, 0);
+    }
+
+    handLimit() {
+      return this.config.handMax + this.ringBonus('hand');
+    }
+
+    // Anel de naipe: uma vez por andar, a carta escolhida da mão vira do naipe do anel (até ser usada).
+    useRing(slot, cardId) {
+      if (!this.canAct() && !this.canFight()) return fail('Não dá para usar o anel agora.');
+      const ring = this.rings[slot];
+      const def = ring && DC.ROGUE.RINGS[ring.ring];
+      if (!def || !def.suit) return fail('Esse anel não precisa ser usado: ele vale enquanto está no dedo.');
+      if (!ring.charged) return fail('O anel já foi usado neste andar: ele recarrega no próximo.');
+      const card = this.hand.find((c) => c.id === cardId);
+      if (!card) return fail('Escolha 1 carta da mão para o anel.');
+      if (card.suit === def.suit) return fail(`Essa carta já é de ${DC.SUIT_SYMBOL[def.suit]}.`);
+      const old = DC.SUIT_SYMBOL[card.suit];
+      card.suit = def.suit;
+      delete this.jokerCopy[card.id];
+      ring.charged = false;
+      this.log(`${def.name}: ${DC.rankLabel(card.rank)}${old} vira ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[def.suit]}.`, 'good');
+      this.afterAction();
+      return { ok: true, card };
+    }
+
+    // Um anel achado: a pessoa escolhe em que espaço vesti-lo (trocando o que estiver lá) ou deixa para trás.
+    resolveRing(slot) {
+      if (!this.pending || this.pending.type !== 'ring') return fail('Nenhum anel para vestir.');
+      const def = DC.ROGUE.RINGS[this.pending.ring];
+      let replaced = null;
+      if (slot === null || slot === undefined) {
+        this.log(`Você deixa ${def.name} para trás.`);
+      } else {
+        if (!Number.isInteger(slot) || slot < 0 || slot >= this.rings.length) return fail('Esse espaço de anel não existe.');
+        replaced = this.rings[slot];
+        this.rings[slot] = { id: `a${++this.ringCount}`, ring: this.pending.ring, charged: true };
+        this.log(`Você veste ${def.name}.${replaced ? ` ${DC.ROGUE.RINGS[replaced.ring].name} fica para trás.` : ''}`, 'good');
+      }
+      this.pending = null;
+      this.afterAction();
+      return { ok: true, replaced };
     }
 
     handCards(ids) {
@@ -378,7 +567,7 @@
       if (!this.canStore()) return fail('Não dá para pegar cartas agora.');
       const card = this.stash.find((c) => c.id === cardId);
       if (!card) return fail('Essa carta não está guardada.');
-      if (this.hand.length >= this.config.handMax) return fail('Sua mão está cheia: libere um espaço antes de pegar a carta guardada.');
+      if (this.hand.length >= this.handLimit()) return fail('Sua mão está cheia: libere um espaço antes de pegar a carta guardada.');
       this.stash = this.stash.filter((c) => c !== card);
       this.hand.push(card);
       return { ok: true };
@@ -386,6 +575,7 @@
 
     afterAction() {
       this.pruneJokers();
+      this.startReinforce();
       if (this.status !== 'playing' || (this.pending && this.pending.type !== 'combat')) return;
       if (!this.hasAnyAction()) {
         this.status = 'lost';
@@ -423,7 +613,15 @@
       const node = found.get(y * this.floor.w + x);
       if (!node || node.dist < 1) return fail('Fora de alcance.');
 
-      const { path, enemy } = this.cutPath(DC.pathTo(this.floor, found, x, y));
+      let { path, enemy } = this.cutPath(DC.pathTo(this.floor, found, x, y));
+      // Uma armadilha escondida no caminho para quem anda ali: o movimento termina na casa dela.
+      const trapAt = path.findIndex((c, i) => i > 0 && (this.floor.traps || []).some((t) => !t.sprung && t.x === c.x && t.y === c.y));
+      let trap = null;
+      if (trapAt > 0) {
+        trap = this.floor.traps.find((t) => !t.sprung && t.x === path[trapAt].x && t.y === path[trapAt].y);
+        path = path.slice(0, trapAt + 1);
+        enemy = null;
+      }
       const end = path[path.length - 1];
       const floorBefore = this.floor;
       if (this.freeMove) {
@@ -435,15 +633,21 @@
         this.discard.push(card);
       }
       this.player = { x: end.x, y: end.y };
+      const picked = this.collectPickups(path);
 
       this.log(`Anda ${path.length - 1} casa(s) usando ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[card.suit]}.`);
+      if (trap) {
+        const sprung = this.springTrap(trap);
+        this.afterAction();
+        return { ok: true, path, floorBefore, descended: false, combat: false, picked, trap: sprung };
+      }
 
       if (enemy) {
         this.pending = { type: 'combat', enemyId: enemy.id, from: { x: path[path.length - 2].x, y: path[path.length - 2].y } };
         this.log('Um inimigo! O movimento é cortado e o combate começa.', 'bad');
         this.startCombatEffects(enemy);
         this.afterAction();
-        return { ok: true, path, floorBefore, descended: false, combat: true };
+        return { ok: true, path, floorBefore, descended: false, combat: true, picked };
       }
 
       let descended = false;
@@ -457,7 +661,7 @@
         }
       }
       this.afterAction();
-      return { ok: true, path, floorBefore, descended, combat: false };
+      return { ok: true, path, floorBefore, descended, combat: false, picked };
     }
 
     // ---------- névoa ----------
@@ -501,7 +705,7 @@
       if (!cards || !cards.length) return fail('Escolha cartas da mão.');
 
       const cost = target.obj.cost.rank;
-      const sum = cards.reduce((total, c) => total + this.cardValue(c), 0);
+      const sum = this.payTotal(cardIds);
       if (sum < cost) return fail(`Faltam ${cost - sum} para abrir (custo ${cost}).`);
 
       const exact = sum === cost;
@@ -535,12 +739,22 @@
       } else {
         this.log(`Abre ${label} gastando ${sum} (custo ${cost}), sem compra de volta.`);
       }
+      // Anel da Comida: uma porta aberta com soma exata põe 1 carta nova no deck.
+      let ringCards = [];
+      if (exact && target.kind === 'door' && this.ringBonus('food') > 0) {
+        ringCards = this.newCards(this.ringBonus('food'));
+        this.shuffleIntoDeck(ringCards);
+        this.reinforced += ringCards.length;
+        this.log(`${DC.ROGUE.RINGS.food.name}: ${ringCards.map((c) => `${DC.rankLabel(c.rank)}${DC.SUIT_SYMBOL[c.suit]}`).join(', ')} entra no seu deck.`, 'good');
+      }
       if (newRoom) {
         this.pending = { type: 'refill', reason: 'door', bonus };
         this.log('Sala nova à frente! Você ganha cartas.', 'good');
       }
 
       let scroll = false;
+      if (target.kind === 'chest' && target.obj.reinforce) this.owe(target.obj.reinforce, 'baú');
+      if (target.kind === 'chest' && target.obj.ring) this.oweRing(target.obj.ring, 'baú');
       if (target.kind === 'chest' && !this.tutorial) this.dropItem();
       if (target.kind === 'chest') {
         if (target.obj.scroll && this.grantScroll()) {
@@ -553,7 +767,7 @@
         }
       }
       this.afterAction();
-      return { ok: true, exact, drawn, kind: target.kind, scroll };
+      return { ok: true, exact, drawn, kind: target.kind, scroll, ringCards };
     }
 
     resolveChest(pickIds, discardIds) {
@@ -564,7 +778,7 @@
       if (picks.length > this.config.chestPicks) return fail(`Escolha no máximo ${this.config.chestPicks}.`);
       const discards = this.handCards(discardIds);
       if (!discards) return fail('Descarte inválido.');
-      if (this.hand.length - discards.length + picks.length > this.config.handMax) {
+      if (this.hand.length - discards.length + picks.length > this.handLimit()) {
         return fail('Mão cheia: descarte cartas para pegar as do baú.');
       }
 
@@ -589,20 +803,6 @@
       const symbol = `${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[card.suit]}`;
 
       if (card.suit === 'H') {
-        if (!this.discard.length) return fail('O descarte está vazio.');
-        const count = Math.min(card.rank, this.discard.length);
-        const returned = this.rng.shuffle(this.discard.slice()).slice(0, count);
-        this.discard = this.discard.filter((c) => !returned.includes(c));
-        this.playerDeck.push(...returned);
-        this.rng.shuffle(this.playerDeck);
-        this.hand = this.hand.filter((c) => c !== card);
-        this.discard.push(card);
-        this.log(`${symbol}: ${count} carta(s) do descarte voltam ao deck.`, 'good');
-        this.afterAction();
-        return { ok: true, count };
-      }
-
-      if (card.suit === 'S') {
         if (!this.playerDeck.length) return fail('O deck está vazio.');
         this.hand = this.hand.filter((c) => c !== card);
         this.discard.push(card);
@@ -617,27 +817,32 @@
 
     // ---------- combate ----------
 
-    // Gasta cartas da mão (soma pelo menos o custo) para derrotar UMA carta do inimigo,
-    // à escolha. Soma exata compra 1 carta; derrotar a última carta é a vitória, que
-    // compra mais 1 carta e tira o inimigo do mapa.
-    attack(cardIds, enemyCardId) {
+    // Gasta cartas da mão para derrotar cartas do inimigo. Sem ♠, a soma precisa ser pelo menos o custo
+    // de UMA carta, à escolha. Com ♠ na seleção (que vale o dobro em combate) dá para derrubar VÁRIAS
+    // cartas de uma vez, desde que a soma cubra o custo de todas. Soma exata compra 1 carta;
+    // derrotar a última carta é a vitória, que compra mais 1 e tira o inimigo do mapa.
+    attack(cardIds, enemyCardIds) {
       if (!this.canFight()) return fail('Não há combate agora.');
       const enemy = this.combatEnemy();
-      const target = enemy.cards.find((c) => c.id === enemyCardId && !enemy.down.includes(c.id));
-      if (!target) return fail('Escolha uma carta do inimigo que ainda esteja de pé.');
-      if (enemy.hidden && enemy.hidden.includes(target.id)) return fail('Essa carta está virada de costas: derrube a outra primeiro.');
+      const ids = Array.isArray(enemyCardIds) ? enemyCardIds : [enemyCardIds];
+      if (!ids.length || new Set(ids).size !== ids.length) return fail('Escolha uma carta do inimigo que ainda esteja de pé.');
+      const targets = ids.map((id) => enemy.cards.find((c) => c.id === id && !enemy.down.includes(c.id)));
+      if (targets.some((t) => !t)) return fail('Escolha uma carta do inimigo que ainda esteja de pé.');
+      if (targets.some((t) => enemy.hidden && enemy.hidden.includes(t.id))) return fail('Essa carta está virada de costas: derrube a outra primeiro.');
       const cards = this.handCards(cardIds);
       if (!cards || !cards.length) return fail('Escolha cartas da mão.');
       if (this.pending.frozen && cards.some((c) => c.id === this.pending.frozen)) return fail('Essa carta está congelada até você derrubar uma carta do inimigo.');
+      if (targets.length > 1 && !cards.some((c) => c.suit === 'S')) return fail('Só com uma carta de ♠ dá para derrubar mais de uma carta do inimigo de uma vez.');
 
-      const cost = target.rank;
-      const sum = cards.reduce((total, c) => total + this.cardValue(c), 0);
-      if (sum < cost) return fail(`Faltam ${cost - sum} para derrotar essa carta (custo ${cost}).`);
+      const cost = targets.reduce((total, t) => total + t.rank, 0);
+      const sum = this.attackSum(cardIds);
+      if (sum < cost) return fail(`Faltam ${cost - sum} para derrotar ${targets.length > 1 ? 'essas cartas' : 'essa carta'} (custo ${cost}).`);
 
       const exact = sum === cost;
       this.hand = this.hand.filter((c) => !cards.includes(c));
       this.discard.push(...cards);
-      enemy.down.push(target.id);
+      for (const t of targets) enemy.down.push(t.id);
+      const names = targets.map((t) => DC.rankLabel(t.rank)).join(' e ');
 
       // Gelo: derrubar uma carta do inimigo descongela a carta da mão.
       if (this.pending.frozen) {
@@ -649,9 +854,9 @@
       let drawn = 0;
       if (exact) {
         drawn = this.draw(1);
-        this.log(`Soma exata! Derruba a carta ${DC.rankLabel(cost)}${drawn ? ' e compra uma carta de graça' : ''}.`, 'good');
+        this.log(`Soma exata! Derruba ${targets.length > 1 ? 'as cartas' : 'a carta'} ${names}${drawn ? ' e compra uma carta de graça' : ''}.`, 'good');
       } else {
-        this.log(`Derruba a carta ${DC.rankLabel(cost)} gastando ${sum}, sem compra de volta.`);
+        this.log(`Derruba ${targets.length > 1 ? 'as cartas' : 'a carta'} ${names} gastando ${sum}, sem compra de volta.`);
       }
 
       // Derrubar uma carta desvira as que estavam de costas.
@@ -676,9 +881,11 @@
           reward = this.draw(1);
           this.log(`Inimigo derrotado!${reward ? ' Você compra uma carta pela vitória.' : ''}`, 'good');
         }
+        if (enemy.reinforce) this.owe(enemy.reinforce, 'inimigo');
+        if (enemy.ring) this.oweRing(enemy.ring, 'inimigo');
       }
       this.afterAction();
-      return { ok: true, exact, drawn, victory, reward, scroll, revealed, enemyId: enemy.id, cardId: target.id };
+      return { ok: true, exact, drawn, victory, reward, scroll, revealed, enemyId: enemy.id, cardId: targets[0].id, cardIds: targets.map((t) => t.id), reinforce: victory ? enemy.reinforce || false : false };
     }
 
     // Foge do combate descartando 1 carta da mão (a escolhida). Volta para a casa de
@@ -722,7 +929,7 @@
       if (!card) return;
       enemy.loot = null;
       if (this.stash.length < this.slotsOpen) this.stash.push(card);
-      else if (this.hand.length < this.config.handMax) this.hand.push(card);
+      else if (this.hand.length < this.handLimit()) this.hand.push(card);
       else this.discard.push(card);
       this.log(`Você recupera ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[card.suit]}.`, 'good');
     }
@@ -750,15 +957,6 @@
       const first = !this.identified.has(key);
       let text;
       switch (key) {
-        case 'heal': {
-          const count = Math.min(3, this.discard.length);
-          const returned = this.itemRng.shuffle(this.discard.slice()).slice(0, count);
-          this.discard = this.discard.filter((c) => !returned.includes(c));
-          this.playerDeck.push(...returned);
-          this.rng.shuffle(this.playerDeck);
-          text = `${count} carta(s) do descarte voltam ao deck.`;
-          break;
-        }
         case 'haste':
           this.freeMove = true;
           text = 'O seu próximo movimento não gasta carta.';
@@ -799,6 +997,117 @@
       return { ok: true, key, text, discovered: first, name };
     }
 
+    // ---------- armadilhas (experimento Baralho Finito) ----------
+
+    // Dispara uma armadilha: dardo queima cartas do topo do deck (vão para o cemitério) e a outra manda
+    // para um ponto afastado da escada, no andar de cima.
+    springTrap(trap) {
+      trap.sprung = true;
+      if (trap.kind === 'dart') {
+        const burned = this.playerDeck.splice(Math.max(0, this.playerDeck.length - this.config.trapDartCards), this.config.trapDartCards);
+        this.discard.push(...burned);
+        this.log(`Armadilha! Um dardo acerta o seu deck: ${burned.length} carta(s) do topo vão para o cemitério.`, 'bad');
+        return { kind: 'dart', burned: burned.length, floorChanged: false };
+      }
+      const to = this.floorNo - 1;
+      const floor = this.floors[to - 1];
+      this.log(`Armadilha! O chão cede e você cai para o andar ${to}.`, 'bad');
+      this.floorNo = to;
+      this.floor = floor;
+      this.visited = this.seenRooms[to];
+      // Cai num ponto de uma sala já visitada, no terço mais longe da escada (precisa andar de volta).
+      const spots = [];
+      for (let y = 0; y < floor.h; y++) {
+        for (let x = 0; x < floor.w; x++) {
+          if (floor.grid[y][x].type !== 'floor' || !this.visited.has(floor.grid[y][x].room) || DC.enemyAt(floor, x, y)) continue;
+          spots.push({ x, y, d: Math.abs(x - floor.exit.x) + Math.abs(y - floor.exit.y) });
+        }
+      }
+      spots.sort((a, b) => b.d - a.d);
+      const far = spots.slice(0, Math.max(1, Math.ceil(spots.length / 3)));
+      const at = far[this.trapRng.int(0, far.length - 1)] || { x: floor.start.x, y: floor.start.y };
+      this.player = { x: at.x, y: at.y };
+      return { kind: 'back', burned: 0, floorChanged: true };
+    }
+
+    // ---------- Comida: Maçã e Bife (experimento Baralho Finito) ----------
+
+    // Recolhe a comida caída nas casas do caminho andado (menos a casa de onde a pessoa saiu).
+    collectPickups(path) {
+      const picked = [];
+      const pickups = this.floor.pickups || [];
+      for (let i = 1; i < path.length; i++) {
+        const pickup = pickups.find((p) => !p.taken && p.x === path[i].x && p.y === path[i].y);
+        if (!pickup) continue;
+        pickup.taken = true;
+        picked.push(pickup);
+        const kind = pickup.gold ? 'gold' : 'normal';
+        this.log(`Você acha ${FOOD[kind].a} no chão!`, 'good');
+        this.owe(kind, 'chão');
+      }
+      return picked;
+    }
+
+    // Uma comida foi achada: a janela dela abre assim que nenhuma outra estiver aberta.
+    owe(kind, source) {
+      if (this.tutorial) return;
+      this.owed.push({ kind, source });
+    }
+
+    // Um anel foi achado: a janela dele abre na vez (depois das outras).
+    oweRing(ring, source) {
+      if (this.tutorial) return;
+      this.owed.push({ ring, source });
+    }
+
+    // Sorteia as cartas novas, como se cada uma saísse de um baralho completo (naipe e número ao acaso:
+    // pode repetir o que o deck já tem). Cada uma ganha um id próprio.
+    newCards(count) {
+      const cards = [];
+      for (let i = 0; i < count; i++) {
+        const suit = this.reinforceRng.pick(DC.SUITS);
+        const rank = this.reinforceRng.int(1, 13);
+        cards.push({ id: `n${++this.cardCount}${suit}${rank}`, suit, rank, fresh: true });
+      }
+      return cards;
+    }
+
+    // Abre a janela do próximo pergaminho que estiver esperando.
+    startReinforce() {
+      if (this.status !== 'playing' || this.pending || !this.owed.length) return;
+      const next = this.owed.shift();
+      if (next.ring) {
+        this.pending = { type: 'ring', ring: next.ring, source: next.source };
+        this.log(`Você achou ${DC.ROGUE.RINGS[next.ring].name}!`, 'good');
+        return;
+      }
+      const { kind, source } = next;
+      const gold = kind === 'gold';
+      const cards = this.newCards(gold ? this.config.reinforceGoldCards : this.config.reinforceCards);
+      this.pending = { type: 'reinforce', kind, gold, source, cards };
+      this.log(`Você come ${FOOD[kind].a}: ${cards.length} cartas novas para o seu deck!`, 'good');
+    }
+
+    // Põe cartas novas no deck, cada uma numa posição aleatória (o fim da lista é o topo).
+    shuffleIntoDeck(cards) {
+      for (const card of cards) {
+        const at = this.reinforceRng.int(0, this.playerDeck.length);
+        this.playerDeck.splice(at, 0, card);
+      }
+    }
+
+    // Termina a janela da comida: as cartas novas entram no deck.
+    resolveReinforce() {
+      if (!this.pending || this.pending.type !== 'reinforce') return fail('Nenhum pergaminho aberto.');
+      const { cards } = this.pending;
+      this.shuffleIntoDeck(cards);
+      this.reinforced += cards.length;
+      this.pending = null;
+      this.log(`Seu deck ganhou: ${cards.map((c) => `${DC.rankLabel(c.rank)}${DC.SUIT_SYMBOL[c.suit]}`).join(', ')}.`, 'good');
+      this.afterAction();
+      return { ok: true, cards };
+    }
+
     // ---------- cartas da sala nova ----------
 
     // As cartas que a janela da sala nova vai dar, na ordem em que saem do deck: primeiro a de graça
@@ -808,7 +1117,7 @@
       if (!this.pending || this.pending.type !== 'refill') return [];
       const bonus = this.pending.bonus || 0;
       const room = this.pending.draws === undefined ? this.config.refillDraw : this.pending.draws;
-      const count = Math.min(bonus + room, this.config.handMax - this.hand.length, this.playerDeck.length);
+      const count = Math.min(bonus + room + this.ringBonus('deck'), this.handLimit() - this.hand.length, this.playerDeck.length);
       const cards = [];
       for (let i = 0; i < count; i++) {
         cards.push({ card: this.playerDeck[this.playerDeck.length - 1 - i], extra: i < bonus });
@@ -819,7 +1128,7 @@
     resolveRefill() {
       if (!this.pending || this.pending.type !== 'refill') return fail('Nada para comprar.');
       const room = this.pending.draws === undefined ? this.config.refillDraw : this.pending.draws;
-      const drawn = this.draw((this.pending.bonus || 0) + room);
+      const drawn = this.draw((this.pending.bonus || 0) + room + this.ringBonus('deck'));
       this.pending = null;
       this.log(`Você compra ${drawn} carta(s).`);
       this.afterAction();
@@ -827,6 +1136,7 @@
     }
   }
 
+  DC.FOOD = FOOD;
   DC.CONFIG = DEFAULT_CONFIG;
   DC.Game = Game;
 })(typeof window !== 'undefined' ? window : globalThis);

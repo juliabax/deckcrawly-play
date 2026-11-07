@@ -113,56 +113,31 @@
         done: { default: `<b>Andar 2!</b>` },
       },
       {
-        id: 'spades',
-        kind: 'coach',
-        wait: 'power',
-        waitSuit: 'S', // só conta o poder de ♠
-        auto: 1200,
-        // RASCUNHO dos textos: a janela do andar já entregou ♠ e ♥. Primeiro as espadas, porque a mão está curta.
-        spots: [
-          {
-            id: 'spades-use',
-            trigger: 'suit', // a carta escolhida é de ♠
-            focus: ['card', 'power', 'deck'], // o deck também: é de lá que as cartas saem
-            lines: ['Espadas compram cartas do deck para a sua mão.', 'O número indica o máximo de cartas compradas: respeitando o limite de 5 cartas na mão.'],
-          },
-          {
-            id: 'spades-pick',
-            trigger: 'any',
-            pulse: 'hand',
-            focus: ['hand'],
-            lines: ['Sua mão está curta, mas você ganhou duas cartas especiais.', 'Escolha a carta de espadas ♠ para comprar mais cartas.'],
-          },
-        ],
-        title: 'Espadas ♠',
-        body: { default: `<b>♠ Espadas</b> compram cartas. Escolha a ♠ e use o botão <b>Poder</b>, ao lado esquerdo da mão.` },
-        done: { default: `<b>Isso!</b> A ♠ foi para o descarte e você comprou cartas até encher a mão.` },
-      },
-      {
         id: 'hearts',
         kind: 'coach',
         wait: 'power',
-        waitSuit: 'H',
+        waitSuit: 'H', // só conta o poder de ♥
         auto: 1200,
+        // RASCUNHO dos textos: a janela do andar já entregou ♥ e ♠. A mão está curta: copas compram cartas.
         spots: [
           {
             id: 'hearts-use',
-            trigger: 'suit',
-            compact: true, // texto longo: letra menor e caixa mais larga para não cobrir a sala
-            focus: ['card', 'power', 'deck'], // o deck também: é para lá que as cartas voltam
-            lines: ['Copas devolvem cartas do descarte para engordar o seu deck. O número da carta indica quantas voltarão.', 'Ficar com o deck zerado pode te matar! Fique esperto e beba água ❤️'],
+            trigger: 'suit', // a carta escolhida é de ♥
+            focus: ['card', 'power', 'deck'], // o deck também: é de lá que as cartas saem
+            lines: ['Copas compram cartas do deck para a sua mão.', 'O número indica o máximo de cartas compradas: respeitando o limite de 7 cartas na mão.'],
           },
           {
             id: 'hearts-pick',
             trigger: 'any',
             pulse: 'hand',
+            compact: true,
             focus: ['hand', 'deck'], // o número do deck é a vida
-            lines: ['O seu deck é a sua vida: quando acaba, você perde.', 'Escolha a carta de copas ♥ para recuperar cartas.'],
+            lines: ['Atenção: carta usada não volta! O seu deck é a sua vida, e quando ele acaba, você perde.', 'Sua mão está curta: escolha a carta de copas ♥ para comprar mais cartas.'],
           },
         ],
         title: 'Copas ♥',
-        body: { default: `<b>♥ Copas</b> devolvem cartas do descarte para o deck: mais vida. Escolha a ♥ e use o <b>Poder</b>.` },
-        done: { default: `<b>Isso!</b> As cartas voltaram para o deck.` },
+        body: { default: `<b>♥ Copas</b> compram cartas. Escolha a ♥ e use o botão <b>Poder</b>, ao lado esquerdo da mão.` },
+        done: { default: `<b>Isso!</b> Você comprou cartas, e a ♥ foi para o descarte. Carta usada não volta ao deck.` },
       },
       {
         id: 'suits-others',
@@ -171,6 +146,16 @@
           {
             focus: 'hand',
             lines: ['Ouros ♦ dobram o alcance ao andar. Um 4♦ anda 8 casas.', 'Paus ♣ são coringas: valem o próprio número ou copiam o de outra carta.'],
+          },
+        ],
+      },
+      {
+        id: 'spades',
+        kind: 'intro', // um clique avança
+        scenes: [
+          {
+            focus: 'hand',
+            lines: ['Espadas ♠ são as cartas de combate: valem o dobro quando você luta.', 'E uma só espada pode derrubar várias cartas do inimigo, se o valor dobrado cobrir todas.'],
           },
         ],
       },
@@ -209,8 +194,8 @@
         title: 'Os 4 naipes',
         body: `<p>Uma carta sozinha também pode ativar o <b>poder do naipe</b> (o número é a intensidade):</p>
           <ul>
-            <li><b>♥ Copas:</b> devolve N cartas do descarte para o deck (mais vida!).</li>
-            <li><b>♠ Espadas:</b> compra até N cartas (a mão vai até 5).</li>
+            <li><b>♥ Copas:</b> compra até N cartas (a mão vai até 7).</li>
+            <li><b>♠ Espadas:</b> em combate vale o dobro e derruba várias cartas do inimigo.</li>
             <li><b>♦ Ouros:</b> ao andar, o número vale em <b>dobro</b>.</li>
             <li><b>♣ Paus:</b> <b>coringa</b>. Vale o próprio número ou copia o de outra carta da mão.</li>
           </ul>
@@ -222,7 +207,7 @@
         kind: 'modal',
         title: 'Salas novas e névoa',
         body: `<p>Você só enxerga as salas que já abriu. A escada <b>▼</b> está escondida: é preciso explorar, mas cada carta gasta é vida.</p>
-          <p>Ao abrir a porta de uma <b>sala nova</b> você pode <b>descartar cartas</b> e <b>comprar 1</b> (sem passar de 5 na mão). Acertar a soma exata dá mais 1 de bônus.</p>
+          <p>Ao abrir a porta de uma <b>sala nova</b> você pode <b>descartar cartas</b> e <b>comprar 1</b> (sem passar de 7 na mão). Acertar a soma exata dá mais 1 de bônus.</p>
           <p>Ao lado da mão você tem <b>1 slot de inventário</b> de brinde: escolha 1 carta e clique no slot para <b>guardá-la</b> em vez de gastá-la (clique nela para pegar de volta).</p>
           <p>Dentro das salas pode haver <b>inimigos</b> (zona vermelha) e <b>baús</b>. A gente te avisa na hora. Boa sorte!</p>
           <p class="muted">Dá para rever tudo pelo botão <b>Como jogar</b>, e as regras completas ficam em <b>Regras</b>.</p>`,
@@ -247,7 +232,7 @@
       },
       lowdeck: {
         title: 'Deck acabando',
-        body: 'Seu deck é a sua <b>vida</b>. Gaste cartas com cuidado: <b>♥</b> devolve cartas do descarte e acertar a <b>soma exata</b> compra cartas.',
+        body: 'Seu deck é a sua <b>vida</b> e carta usada <b>não volta</b>. Gaste com cuidado: acertar a <b>soma exata</b> compra cartas e a <b>comida</b> (Maçã e Bife) acrescenta cartas novas ao deck.',
       },
     },
 
@@ -258,10 +243,10 @@
 
     // Dica na tela de derrota, conforme o que levou a ela (ver lossHint).
     lossHints: {
-      handOut: 'Lembre-se de usar cartas de espadas para repor sua mão!',
-      deckOut: 'Seu deck zerou! Use cartas de copas ♥ para devolver cartas do descarte para o deck antes que ele acabe.',
+      handOut: 'Lembre-se de usar cartas de copas ♥ para repor sua mão!',
+      deckOut: 'Seu deck zerou! Carta usada não volta: gaste com cuidado e procure comida (Maçã e Bife) pela masmorra.',
       flee: 'Fugir custa uma carta. Com a mão curta, vale mais contornar a zona vermelha ou lutar pela soma exata.',
-      combat: 'Em combate, tente a soma exata: ela compra 1 carta de graça. E reponha a mão com espadas ♠ antes de lutar!',
+      combat: 'Em combate, use espadas ♠: elas valem o dobro e uma só pode derrubar várias cartas do inimigo. A soma exata compra 1 carta!',
       fallback: 'Cada passo custa uma carta. Planeje o caminho e gaste as cartas com cuidado.',
     },
 
@@ -453,6 +438,14 @@
       this.flees = 0;
       this.stashes = 0;
       this.scrolls = 0;
+      this.reinforces = 0;
+      this.ringsFound = 0;
+      this.ringsWorn = 0;
+      this.ringUses = 0;
+      this.ringFoodCards = 0;
+      this.steaks = 0;
+      this.traps = { dart: 0, back: 0 };
+      this.reinforceCards = 0;
       this.helps = 0;
       this.powers = { H: 0, S: 0, D: 0, C: 0 };
       this.rejects = 0;
@@ -494,6 +487,24 @@
         case 'scroll':
           this.scrolls++;
           break;
+        case 'ring':
+          this.ringsFound++;
+          if (data.equipped) this.ringsWorn++;
+          break;
+        case 'ring-food':
+          this.ringFoodCards += data.cards || 0;
+          break;
+        case 'ring-use':
+          this.ringUses++;
+          break;
+        case 'trap':
+          if (this.traps[data.kind] !== undefined) this.traps[data.kind]++;
+          break;
+        case 'reinforce':
+          this.reinforces++;
+          if (data.gold) this.steaks++;
+          this.reinforceCards += data.cards || 0;
+          break;
         case 'help':
           this.helps++;
           break;
@@ -533,7 +544,11 @@
     lines.push(`Somas exatas: ${stats.exact}`);
     lines.push(`Combates: ${stats.combats} (${stats.victories} vitórias, ${stats.flees} fugas, ${stats.attacks} ataques)`);
     lines.push(`Poderes: ♥ ${p.H} · ♠ ${p.S} · ♦ ${p.D} · ♣ ${p.C}`);
-    lines.push(`Pergaminhos: ${stats.scrolls} · cartas guardadas ${stats.stashes} vezes`);
+    lines.push(`Pergaminhos de Inventário: ${stats.scrolls} · cartas guardadas ${stats.stashes} vezes`);
+    lines.push(`Anéis: ${stats.ringsFound} achados, ${stats.ringsWorn} vestidos · no dedo no fim: ${game.rings.filter(Boolean).map((r) => DC.ROGUE.RINGS[r.ring].name).join(', ') || 'nenhum'} · usos de anel de naipe: ${stats.ringUses} · cartas do Anel da Comida: ${stats.ringFoodCards}`);
+    lines.push(`Armadilhas: ${stats.traps.dart} de dardo · ${stats.traps.back} de queda`);
+    lines.push(`Comida: ${stats.reinforces} (${stats.reinforces - stats.steaks} maçãs, ${stats.steaks} bifes · ${stats.reinforceCards} cartas novas no deck)`);
+    lines.push(`Deck no fim, por naipe: ${['S', 'H', 'D', 'C'].map((suit) => `${DC.SUIT_SYMBOL[suit]} ${game.playerDeck.filter((c) => c.suit === suit).length + game.hand.filter((c) => c.suit === suit).length}`).join(' · ')} (deck + mão)`);
     lines.push(`Salas novas (cartas ganhas): ${stats.refills}`);
     lines.push(`Abriu as Regras: ${stats.helps} vezes`);
     const msgs = Object.entries(stats.rejectMessages).sort((a, b) => b[1] - a[1]);
@@ -563,7 +578,7 @@
     const h = TEXT.lossHints;
     if (game.lostBy === 'flee') return h.flee;
     if (game.lostBy === 'combat') return h.combat;
-    if (!game.playerDeck.length) return game.discard.length ? h.deckOut : h.fallback;
+    if (!game.playerDeck.length) return h.deckOut;
     return h.handOut;
   }
 

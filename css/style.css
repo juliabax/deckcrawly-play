@@ -2719,3 +2719,183 @@ html:not(.touch) .link:hover {
 .t-floor.start .stair {
   filter: drop-shadow(0 0 2px rgba(255, 246, 194, 0.6));
 }
+
+/* ---- Experimento Baralho Finito: comida (maçã e bife), cemitério e ataque de ♠ em grupo ---- */
+
+/* Comida caída no chão: flutua e brilha. */
+.tile.t-pickup .food-ico {
+  position: absolute;
+  inset: 12%;
+  width: 76%;
+  height: 76%;
+  z-index: 2;
+  pointer-events: none;
+  filter: drop-shadow(0 0 5px rgba(246, 231, 180, 0.9));
+  animation: pickfloat 1.8s ease-in-out infinite;
+}
+
+.tile.t-pickup.gold .food-ico {
+  filter: drop-shadow(0 0 7px rgba(255, 215, 106, 1));
+}
+
+@keyframes pickfloat {
+  50% {
+    transform: translateY(-9%) scale(1.06);
+  }
+}
+
+.no-fx .tile.t-pickup .food-ico {
+  animation: none;
+}
+
+/* Janela do pergaminho: as cartas novas cabem em uma fileira (até 5). */
+.modal.reinforce .reveal-row {
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.reveal-slot.reinforce-slot,
+.reveal-slot.reinforce-slot .card {
+  --cw: 88px;
+}
+
+.reveal-slot.reinforce-slot .reveal-tag {
+  color: #f6e7b4;
+}
+
+.reinforce-ico {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.reinforce-ico .food-ico {
+  width: 54px;
+  height: 54px;
+  filter: drop-shadow(0 0 10px rgba(246, 231, 180, 0.8));
+}
+
+.modal.reinforce.gold .reinforce-ico .food-ico {
+  filter: drop-shadow(0 0 12px rgba(255, 215, 106, 1));
+}
+
+.modal.reinforce.gold h2 {
+  color: #ffd76a;
+}
+
+/* Cemitério. */
+.pile.grave-pile {
+  cursor: pointer;
+}
+
+.modal.grave {
+  max-width: min(760px, 94vw);
+}
+
+.grave-suit h4 {
+  margin: 10px 0 4px;
+}
+
+.grave-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 28px;
+}
+
+.grave-row .card {
+  --cw: 46px;
+}
+
+/* Ataque de ♠ em grupo: as cartas marcadas sobem e ganham contorno. */
+.enemy-card.target {
+  transform: translateY(-8px);
+  outline: 3px dashed var(--accent);
+  outline-offset: 3px;
+}
+
+/* Armadilhas já disparadas ficam marcadas no chão; as escondidas não aparecem. */
+.tile.t-trap .trap-mark {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: calc(var(--tile) * 0.55);
+  font-weight: 900;
+  color: #ff6b6b;
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.9);
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+body.shake #app,
+body.shake main {
+  animation: trapshake 0.45s linear;
+}
+
+@keyframes trapshake {
+  10%, 90% { transform: translateX(-3px); }
+  30%, 70% { transform: translateX(6px); }
+  50% { transform: translateX(-6px); }
+}
+
+.no-fx body.shake #app,
+.no-fx body.shake main {
+  animation: none;
+}
+
+/* ---- Anéis (experimento Baralho Finito) ---- */
+.bag-slot.ring {
+  position: relative;
+}
+
+.bag-slot.ring .ring-ico {
+  width: 22px;
+  height: 22px;
+}
+
+.bag-slot.ring small {
+  font-size: 9px;
+  color: var(--muted, #b9b3c9);
+}
+
+.bag-slot.ring.suit:not(.spent) small {
+  color: #9be29b;
+}
+
+.bag-slot.ring.spent {
+  opacity: 0.55;
+  border-color: var(--line);
+}
+
+.ring-big {
+  display: flex;
+  justify-content: center;
+}
+
+.ring-big .ring-ico {
+  width: 84px;
+  height: 84px;
+  filter: drop-shadow(0 0 12px rgba(241, 199, 90, 0.7));
+}
+
+.ring-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ring-actions .btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.ring-actions .btn small {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.btn.ring-btn:disabled {
+  opacity: 0.5;
+}

@@ -290,7 +290,7 @@
   }
 
   // Segundo andar do treino: uma sala comprida, e um inimigo ao lado da escada (alcance 1). Chegar na escada
-  // é entrar na zona dele, então só dá para passar lutando. `cards` são as cartas dele (a última fica virada).
+  // é entrar na zona dele, então só dá para passar lutando. `cards` são as cartas dele (as duas à vista).
   function tutorialFloor2(cards) {
     const w = 13;
     const h = 5;
@@ -312,7 +312,7 @@
       blocks: true,
       kind: 'skeleton1',
       cards,
-      hidden: [cards[cards.length - 1].id],
+      hidden: [],
       down: [],
       dead: false,
       scroll: false,
@@ -424,6 +424,23 @@
     return spots;
   }
 
+  // Onde uma comida (ou uma armadilha) pode ficar no chão: numa sala comum ou na do tesouro (nunca a inicial
+  // nem a da saída, para valer um desvio), numa casa livre fora das zonas dos inimigos e longe das portas.
+  function placePickup(rng, floor, taken = null) {
+    const rooms = floor.rooms.filter((r) => r.kind === 'normal' || r.kind === 'treasure');
+    const spots = [];
+    for (const room of rooms) {
+      for (let y = room.y; y < room.y + room.h; y++) {
+        for (let x = room.x; x < room.x + room.w; x++) {
+          if (floor.grid[y][x].type !== 'floor' || doorAdjacent(floor, x, y) || (taken && taken(x, y))) continue;
+          if ((floor.enemies || []).some((e) => inZone(e, floor.grid[y][x], x, y))) continue;
+          spots.push({ x, y });
+        }
+      }
+    }
+    return spots.length ? rng.pick(spots) : null;
+  }
+
   function isWalkable(cell) {
     if (!cell) return false;
     if (cell.type === 'floor' || cell.type === 'start' || cell.type === 'exit') return true;
@@ -483,5 +500,5 @@
     return targets;
   }
 
-  Object.assign(DC, { generateFloor, tutorialFloor, tutorialFloor2, cellAt, reach, pathTo, adjacentTargets, placeEnemies, enemyAt, enemyZone, blocksRoom, DIRS });
+  Object.assign(DC, { generateFloor, tutorialFloor, tutorialFloor2, cellAt, reach, pathTo, adjacentTargets, placeEnemies, placePickup, enemyAt, enemyZone, blocksRoom, DIRS });
 })(typeof window !== 'undefined' ? window : globalThis);
