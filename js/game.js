@@ -36,17 +36,25 @@
     reinforceEnemyBase: 0.1, // chance de um inimigo deixar o pergaminho: este valor mais perPoint × soma das cartas dele
     reinforceEnemyPerPoint: 0.015,
     reinforceGoldEnemy: 0.25, // chance de ser dourado, para inimigos de 3 cartas ou mais
-    reinforceChestChance: 0.35, // chance de um baú guardar um pergaminho além das cartas
-    reinforceGoldChest: 0.2,
     reinforceFloorChance: [0.8, 0.8, 0.7, 0.5, 0.4], // pergaminho no chão: chance por andar (o último valor vale para os seguintes)
     reinforceGoldFloor: 0.15,
     // Armadilhas escondidas: só aparecem quando você pisa. Cada uma dispara uma vez.
     trapsPerFloor: [1, 1, 2, 2, 2], // por andar (o último valor vale para os seguintes)
     trapBackShare: 0.4, // fração das armadilhas que mandam de volta ao andar anterior (as outras são de dardo)
     trapDartCards: 2, // cartas do deck que o dardo queima
+    // Ratos: inimigos pequenos de 1 carta baixa, a mais que o deck da dungeon (que agora pode passar de 52 cartas).
+    ratsMin: 2, // por andar
+    ratsMax: 3,
+    ratRankMax: 5, // a carta do rato vai de 1 a este valor
+    ratFoodChance: 0.25, // chance de um rato derrotado deixar uma Maçã (os outros inimigos dependem das cartas deles)
+    itemDropChanceSmall: 0.15, // chance de um rato deixar uma poção ou pergaminho da bolsa
     // Anéis: equipamento com 2 espaços; vêm de baús e de inimigos (mais difíceis, mais chance).
     ringSlots: 2,
-    ringChestChance: 0.5,
+    // Baús: o que custa cartas é o prêmio grande (anel ou Bife garantido); o grátis dá menos (Maçã garantida,
+    // anel mais raro). `chestFreeChance` é a fração de baús destrancados, que abrem sem gastar cartas.
+    chestFreeChance: 0.4,
+    ringChestPaid: 0.5,
+    ringChestFree: 0.25,
     ringEnemyBase: 0.04,
     ringEnemyPerPoint: 0.006,
   };
@@ -108,7 +116,12 @@
       this.trapRng = DC.makeRng(`${this.seed}:traps`);
       this.hiddenRng = DC.makeRng(`${this.seed}:hidden`); // quais inimigos têm carta virada
       this.ringRng = DC.makeRng(`${this.seed}:rings`); // quais baús e inimigos deixam anel, e qual
+      this.ratRng = DC.makeRng(`${this.seed}:rats`); // ratos: quantos, onde e que carta
+      this.ratCount = 0;
+      this.chestRng = DC.makeRng(`${this.seed}:chests`); // quais baús são destrancados (grátis)
       this.ringCount = 0;
+      // Para onde as cartas vão (só para o relatório): andar, portas e baús, combate, fuga, poder do ♥, armadilhas.
+      this.spent = { move: 0, open: 0, attack: 0, flee: 0, power: 0, trap: 0, spadeAttack: 0, spadeOther: 0 };
       this.rings = Array(this.config.ringSlots).fill(null); // anéis no dedo: { id, ring, charged }
       this.seenRooms = {}; // salas visitadas de cada andar (ao voltar de uma armadilha, o mapa continua aberto)
       this.arrived = new Set(); // andares já alcançados (só a primeira chegada dá cartas)
@@ -189,7 +202,47 @@
       this.planScrolls();
       this.planReinforcements();
       this.planTraps();
+      this.planChests();
       this.planRings();
+      this.planRats();
+    }
+
+    // Acrescenta os ratos (inimigos pequenos de 1 carta) depois de tudo, com sorteio à parte: a masmorra de cada
+    // seed continua igual, só ganha ratos. A carta do rato não sai do deck da dungeon.
+    planRats() {
+      const cfg = this.config;
+      const rng = this.ratRng;
+      for (const floor of this.floors) {
+        const forbidden = (x, y) => (floor.pickups || []).some((p) => p.x === x && p.y === y) || (floor.traps || []).some((t) => t.x === x && t.y === y);
+        const spots = DC.placeSmall(rng, floor, rng.int(cfg.ratsMin, cfg.ratsMax), cfg.enemyRange, forbidden);
+        for (const spot of spots) {
+          const suit = rng.pick(DC.SUITS);
+          const rank = rng.int(1, cfg.ratRankMax);
+          const food = rng.next() < cfg.ratFoodChance ? 'normal' : null;
+          floor.enemies.push({
+            id: floor.enemies.length,
+            ...spot,
+            kind: 'rat',
+            small: true,
+            cards: [{ id: `r${++this.ratCount}${suit}${rank}`, suit, rank }],
+            hidden: [],
+            down: [],
+            dead: false,
+            ability: null,
+            scroll: false,
+            ring: null,
+            reinforce: food,
+          });
+        }
+      }
+    }
+
+    // Sorteia (pela seed, num sorteio à parte) quais baús são destrancados: abrem de graça, sem gastar cartas
+    // (a carta de custo continua saindo do deck da dungeon, então a conta do deck não muda).
+    planChests() {
+      for (const floor of this.floors) {
+        for (const chest of floor.chests) chest.free = this.chestRng.next() < this.config.chestFreeChance;
+      }
     }
 
     // Sorteia (pela seed, num sorteio à parte) quais baús e inimigos deixam um anel, e qual (anéis comuns saem
@@ -213,7 +266,12 @@
           const points = enemy.cards.reduce((sum, c) => sum + c.rank, 0);
           enemy.ring = rng.next() < cfg.ringEnemyBase + cfg.ringEnemyPerPoint * points ? pick() : null;
         }
-        for (const chest of floor.chests) chest.ring = rng.next() < cfg.ringChestChance ? pick() : null;
+        // Todo baú dá algo: o anel (mais chance se custa cartas) ou, se não for anel, comida garantida:
+        // o Bife (5 cartas) no baú que custa cartas e a Maçã (3) no destrancado.
+        for (const chest of floor.chests) {
+          chest.ring = rng.next() < (chest.free ? cfg.ringChestFree : cfg.ringChestPaid) ? pick() : null;
+          chest.reinforce = chest.ring ? null : chest.free ? 'normal' : 'gold';
+        }
       }
     }
 
@@ -248,7 +306,6 @@
           const chance = Math.min(0.9, cfg.reinforceEnemyBase + cfg.reinforceEnemyPerPoint * points);
           enemy.reinforce = rng.next() < chance ? kind(enemy.cards.length >= cfg.enemyDeepCards ? cfg.reinforceGoldEnemy : 0) : null;
         }
-        for (const chest of floor.chests) chest.reinforce = rng.next() < cfg.reinforceChestChance ? kind(cfg.reinforceGoldChest) : null;
         const odds = cfg.reinforceFloorChance;
         floor.pickups = [];
         if (rng.next() < odds[Math.min(i, odds.length - 1)]) {
@@ -349,7 +406,7 @@
     dungeonRemaining() {
       let n = 0;
       for (const f of this.floors) {
-        n += f.doors.filter((d) => !d.open).length + f.chests.filter((c) => !c.open).length;
+        n += f.doors.filter((d) => !d.open).length + f.chests.filter((c) => !c.open && !c.free).length;
         for (const e of f.enemies) if (!e.dead) n += e.cards.length - e.down.length;
       }
       return n;
@@ -631,6 +688,8 @@
       } else {
         this.hand = this.hand.filter((c) => c !== card);
         this.discard.push(card);
+        this.spent.move++;
+        if (card.suit === 'S') this.spent.spadeOther++;
       }
       this.player = { x: end.x, y: end.y };
       const picked = this.collectPickups(path);
@@ -701,16 +760,20 @@
       if (!this.canAct()) return fail('Não dá para abrir agora.');
       const target = this.adjacentTargets().find((t) => t.x === x && t.y === y);
       if (!target) return fail('Fique ao lado de uma porta ou baú fechado.');
-      const cards = this.handCards(cardIds);
-      if (!cards || !cards.length) return fail('Escolha cartas da mão.');
+      // Baú destrancado (grátis): abre sem gastar cartas.
+      const free = target.kind === 'chest' && Boolean(target.obj.free);
+      const cards = free ? [] : this.handCards(cardIds);
+      if (!free && (!cards || !cards.length)) return fail('Escolha cartas da mão.');
 
       const cost = target.obj.cost.rank;
-      const sum = this.payTotal(cardIds);
-      if (sum < cost) return fail(`Faltam ${cost - sum} para abrir (custo ${cost}).`);
+      const sum = free ? 0 : this.payTotal(cardIds);
+      if (!free && sum < cost) return fail(`Faltam ${cost - sum} para abrir (custo ${cost}).`);
 
-      const exact = sum === cost;
+      const exact = !free && sum === cost;
       this.hand = this.hand.filter((c) => !cards.includes(c));
       this.discard.push(...cards);
+      this.spent.open += cards.length;
+      this.spent.spadeOther += cards.filter((c) => c.suit === 'S').length;
       target.obj.open = true;
 
       // A compra da sala nova acontece logo depois de abrir a porta que dá numa sala ainda não
@@ -728,7 +791,9 @@
       const label = target.kind === 'door' ? 'a porta' : 'o baú';
       let drawn = 0;
       let bonus = 0; // carta de graça da soma exata que fica para a janela da sala nova
-      if (exact) {
+      if (free) {
+        this.log('O baú estava destrancado: abre de graça.', 'good');
+      } else if (exact) {
         if (newRoom) {
           bonus = 1;
           this.log(`Soma exata! Abre ${label} e ganha uma carta de graça.`, 'good');
@@ -806,6 +871,7 @@
         if (!this.playerDeck.length) return fail('O deck está vazio.');
         this.hand = this.hand.filter((c) => c !== card);
         this.discard.push(card);
+        this.spent.power++;
         const drawn = this.draw(card.rank);
         this.log(`${symbol}: compra ${drawn} carta(s).`, 'good');
         this.afterAction();
@@ -841,6 +907,8 @@
       const exact = sum === cost;
       this.hand = this.hand.filter((c) => !cards.includes(c));
       this.discard.push(...cards);
+      this.spent.attack += cards.length;
+      this.spent.spadeAttack += cards.filter((c) => c.suit === 'S').length;
       for (const t of targets) enemy.down.push(t.id);
       const names = targets.map((t) => DC.rankLabel(t.rank)).join(' e ');
 
@@ -872,7 +940,7 @@
         enemy.dead = true;
         this.pending = null;
         this.returnLoot(enemy);
-        if (!this.tutorial && this.itemRng.next() < this.config.itemDropChance) this.dropItem();
+        if (!this.tutorial && this.itemRng.next() < (enemy.small ? this.config.itemDropChanceSmall : this.config.itemDropChance)) this.dropItem();
         // Às vezes o inimigo deixa um Pergaminho de Inventário no lugar da carta de recompensa.
         if (enemy.scroll && this.grantScroll()) {
           scroll = true;
@@ -897,6 +965,8 @@
       if (!card) return fail('Escolha a carta que você descarta para fugir.');
       this.hand = this.hand.filter((c) => c !== card);
       this.discard.push(card);
+      this.spent.flee++;
+      if (card.suit === 'S') this.spent.spadeOther++;
       this.player = { x: this.pending.from.x, y: this.pending.from.y };
       this.pending = null;
       this.log(`Você foge descartando ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[card.suit]}.`);
@@ -1006,6 +1076,7 @@
       if (trap.kind === 'dart') {
         const burned = this.playerDeck.splice(Math.max(0, this.playerDeck.length - this.config.trapDartCards), this.config.trapDartCards);
         this.discard.push(...burned);
+        this.spent.trap += burned.length;
         this.log(`Armadilha! Um dardo acerta o seu deck: ${burned.length} carta(s) do topo vão para o cemitério.`, 'bad');
         return { kind: 'dart', burned: burned.length, floorChanged: false };
       }

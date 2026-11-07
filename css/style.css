@@ -2899,3 +2899,50 @@ body.shake main {
 .btn.ring-btn:disabled {
   opacity: 0.5;
 }
+
+/* Baú destrancado: abre de graça, sem custo em cartas. */
+.tile .free-tag {
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 1px 5px;
+  font-size: calc(var(--tile) * 0.22);
+  font-weight: 800;
+  line-height: 1.2;
+  text-transform: uppercase;
+  color: #1b2a1b;
+  background: #9be29b;
+  border-radius: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* Rato: inimigo pequeno de 1 carta. */
+.tile .rat-ico {
+  position: absolute;
+  left: 8%;
+  top: 6%;
+  width: 84%;
+  height: 66%;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+  pointer-events: none;
+  animation: ratwiggle 1.6s ease-in-out infinite;
+}
+
+@keyframes ratwiggle {
+  50% {
+    transform: translateX(6%) rotate(2deg);
+  }
+}
+
+.no-fx .tile .rat-ico {
+  animation: none;
+}
+
+.foe .rat-ico {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

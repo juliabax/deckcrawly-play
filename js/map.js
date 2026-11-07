@@ -424,6 +424,36 @@
     return spots;
   }
 
+  // Onde ficam os inimigos pequenos (ratos): em qualquer sala menos a inicial, até 2 por sala, numa casa
+  // livre cuja zona não pegue portas, escadas, baú nem a zona de outro inimigo (nem casas proibidas, como as
+  // de pergaminhos e armadilhas), e que não tranque a sala. Devolve [{ x, y, room, range, blocks }].
+  function placeSmall(rng, floor, count, range, forbidden = null) {
+    const keyOf = (x, y) => y * floor.w + x;
+    const zoneKeys = (e) => new Set(enemyZone(floor, e).map((z) => keyOf(z.x, z.y)));
+    const used = (floor.enemies || []).filter((e) => !e.dead).map((e) => zoneKeys(e));
+    const perRoom = new Map();
+    const spots = [];
+    const rooms = rng.shuffle(floor.rooms.filter((r) => r.kind !== 'start'));
+    for (let pass = 0; pass < 2 && spots.length < count; pass++) {
+      for (const room of rooms) {
+        if (spots.length >= count) break;
+        if ((perRoom.get(room.id) || 0) > pass) continue;
+        const options = enemyCandidates(floor, room, range).filter((c) => {
+          const keys = zoneKeys(c);
+          if (forbidden && [...keys].some((k) => forbidden(k % floor.w, Math.floor(k / floor.w)))) return false;
+          if (used.some((u) => [...keys].some((k) => u.has(k)))) return false;
+          return !blocksRoom(floor, room, c);
+        });
+        if (!options.length) continue;
+        const pick = rng.pick(options);
+        spots.push({ ...pick, blocks: false });
+        used.push(zoneKeys(pick));
+        perRoom.set(room.id, (perRoom.get(room.id) || 0) + 1);
+      }
+    }
+    return spots;
+  }
+
   // Onde uma comida (ou uma armadilha) pode ficar no chão: numa sala comum ou na do tesouro (nunca a inicial
   // nem a da saída, para valer um desvio), numa casa livre fora das zonas dos inimigos e longe das portas.
   function placePickup(rng, floor, taken = null) {
@@ -500,5 +530,5 @@
     return targets;
   }
 
-  Object.assign(DC, { generateFloor, tutorialFloor, tutorialFloor2, cellAt, reach, pathTo, adjacentTargets, placeEnemies, placePickup, enemyAt, enemyZone, blocksRoom, DIRS });
+  Object.assign(DC, { generateFloor, tutorialFloor, tutorialFloor2, cellAt, reach, pathTo, adjacentTargets, placeEnemies, placeSmall, placePickup, enemyAt, enemyZone, blocksRoom, DIRS });
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -543,7 +543,14 @@
     );
     lines.push(`Somas exatas: ${stats.exact}`);
     lines.push(`Combates: ${stats.combats} (${stats.victories} vitórias, ${stats.flees} fugas, ${stats.attacks} ataques)`);
-    lines.push(`Poderes: ♥ ${p.H} · ♠ ${p.S} · ♦ ${p.D} · ♣ ${p.C}`);
+    lines.push(`Poderes: ♥ ${p.H} (comprou cartas) · ♦ ${p.D} (andou o dobro) · ♣ ${p.C} (coringa)`);
+    if (game.spent) {
+      const sp = game.spent;
+      lines.push(
+        `Cartas gastas por tipo: andar ${sp.move} · portas e baús ${sp.open} · combate ${sp.attack} · poder do ♥ ${sp.power} · fuga ${sp.flee} · dardos ${sp.trap}`,
+      );
+      lines.push(`♠ gastos: ${sp.spadeAttack} em combate (valem o dobro) · ${sp.spadeOther} fora do combate (andar, portas, fuga: o dobro se perde)`);
+    }
     lines.push(`Pergaminhos de Inventário: ${stats.scrolls} · cartas guardadas ${stats.stashes} vezes`);
     lines.push(`Anéis: ${stats.ringsFound} achados, ${stats.ringsWorn} vestidos · no dedo no fim: ${game.rings.filter(Boolean).map((r) => DC.ROGUE.RINGS[r.ring].name).join(', ') || 'nenhum'} · usos de anel de naipe: ${stats.ringUses} · cartas do Anel da Comida: ${stats.ringFoodCards}`);
     lines.push(`Armadilhas: ${stats.traps.dart} de dardo · ${stats.traps.back} de queda`);

@@ -93,7 +93,9 @@
     <path d="M12 22.8h8v5H12z" fill="#4f4637"/>
     <rect width="32" height="32" fill="url(#stair-dark)"/>
   </svg>`;
-  const ENEMY_NAME = { skeleton1: 'Skelly', skeleton2: 'Esqueleto', vampire: 'Vampiro' };
+  const ENEMY_NAME = { skeleton1: 'Skelly', skeleton2: 'Esqueleto', vampire: 'Vampiro', rat: 'Rato' };
+  // Rato (inimigo pequeno de 1 carta): desenhado em SVG nos dois visuais, até ganhar pixel art própria.
+  const RAT_SVG = `<svg class="rat-ico" viewBox="0 0 32 32" aria-hidden="true"><path d="M7 22c-3-.5-5-3-4-6.500 .4-1.400 2-1.600 2.300-.3" fill="none" stroke="#e8a3a3" stroke-width="2" stroke-linecap="round" /><ellipse cx="14.500" cy="21" rx="10" ry="6.500" fill="#8f8a98" stroke="#2a2430" stroke-width="1.500" /><path d="M21.500 15.500c3-1.300 7.500.7 8.500 4-.9 2.200-5 3.200-8.500 2z" fill="#a8a3b1" stroke="#2a2430" stroke-width="1.500" stroke-linejoin="round" /><circle cx="21" cy="14.500" r="3.400" fill="#e8a3a3" stroke="#2a2430" stroke-width="1.200" /><circle cx="26" cy="18.500" r="1.200" fill="#ffd76a" stroke="#2a2430" stroke-width=".5" /><circle cx="30" cy="20" r="1.100" fill="#f08a9a" /><path d="M27.500 21.500l-3.500 1.200M27.500 22.500l-3 2" stroke="#2a2430" stroke-width=".8" stroke-linecap="round" /><path d="M9 26.500l-1.500 2M14 27.500l-.5 2.500M19 27l.5 2.500" stroke="#2a2430" stroke-width="1.500" stroke-linecap="round" /></svg>`;
 
   // O zoom é um múltiplo do tamanho que faz a masmorra inteira caber na tela.
   const ZOOMS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3];
@@ -1134,7 +1136,8 @@
       const cell = this.game.floor.grid[y][x];
 
       if (cell.type === 'door' || cell.type === 'chest') {
-        if (!this.sel.length) return this.toast('Selecione cartas da mão para pagar o custo.');
+        const freeChest = cell.type === 'chest' && this.game.floor.chests[cell.ref].free;
+        if (!this.sel.length && !freeChest) return this.toast('Selecione cartas da mão para pagar o custo.');
         const rect = tile.getBoundingClientRect();
         const res = this.game.open(x, y, this.sel);
         if (!res.ok) return this.reject(res.error);
@@ -1807,7 +1810,9 @@
         panel.innerHTML = `<h3>Sua vez</h3>
           <p>Selecione cartas da mão:</p>
           <p class="muted">• <b>1 carta</b> anda (${this.isTouch() ? 'toque numa casa dourada para ver o caminho e de novo para andar' : 'clique numa casa dourada'}) ou usa o poder do naipe.<br>
-          • <b>Cartas somadas</b> abrem portas e baús ao seu lado.</p>`;
+          • <b>Cartas somadas</b> abrem portas e baús ao seu lado.</p>${
+            g.adjacentTargets().some((t) => t.kind === 'chest' && t.obj.free) ? `<p><b>Baú destrancado</b> ao seu lado: ${this.isTouch() ? 'toque' : 'clique'} nele para abrir de graça, sem gastar cartas.</p>` : ''
+          }`;
         return;
       }
 
@@ -1823,6 +1828,10 @@
           const cost = t.obj.cost.rank;
           const name = t.kind === 'door' ? 'Porta' : 'Baú';
           let status;
+          if (t.kind === 'chest' && t.obj.free) {
+            html += `<p><b>Baú destrancado</b> <span class="tag exact">abre de graça</span><br><span class="muted">${this.isTouch() ? 'Toque' : 'Clique'} nele no mapa: as cartas escolhidas não são gastas.</span></p>`;
+            continue;
+          }
           if (sum === cost) status = '<span class="tag exact">soma exata · compra 1 carta</span>';
           else if (sum > cost) status = '<span class="tag ok">abre · sem compra</span>';
           else status = `<span class="tag no">faltam ${cost - sum}</span>`;
@@ -1888,7 +1897,7 @@
                 cls += ' t-enemy zone';
                 const facedown = left.filter((c) => isHiddenCard(enemy, c)).length;
                 inner =
-                  (art ? `<i class="sprite enemy-sprite k-${enemy.kind}"></i>` : ENEMY_SVG) +
+                  (enemy.kind === 'rat' ? RAT_SVG : art ? `<i class="sprite enemy-sprite k-${enemy.kind}"></i>` : ENEMY_SVG) +
                   `<span class="enemy-cards${left.length > 2 ? ' many' : ''}">${left.map((c) => (isHiddenCard(enemy, c) ? MINI_BACK : miniHTML(c))).join('')}</span>`;
                 title = `Inimigo (${left.length} carta${left.length === 1 ? '' : 's'}${facedown ? `, ${facedown} virada${facedown === 1 ? '' : 's'}` : ''}): entrar na zona vermelha começa um combate`;
               } else if (DC.enemyAt(f, x, y)) {
@@ -1931,8 +1940,8 @@
             case 'chest': {
               const c = f.chests[cell.ref];
               cls = `t-floor t-chest${alt}${treasure}${justOpened(c.open)}`;
-              inner = (art ? `<i class="sprite chest-sprite${c.open ? ' open' : ''}"></i>` : CHEST_SVG(c.open)) + (c.open ? '' : miniHTML(c.cost));
-              title = c.open ? 'Baú aberto' : `Baú: custo ${DC.rankLabel(c.cost.rank)}`;
+              inner = (art ? `<i class="sprite chest-sprite${c.open ? ' open' : ''}"></i>` : CHEST_SVG(c.open)) + (c.open ? '' : c.free ? '<span class="free-tag">grátis</span>' : miniHTML(c.cost));
+              title = c.open ? 'Baú aberto' : c.free ? 'Baú destrancado: abre de graça, sem gastar cartas' : `Baú: custo ${DC.rankLabel(c.cost.rank)} (guarda um prêmio bom: um Bife ou um anel, às vezes)`;
               break;
             }
           }
@@ -2857,7 +2866,7 @@
         <p class="combat-help">${this.isTouch() ? 'Toque' : 'Escolha'} cartas da mão cuja <b>soma</b> seja pelo menos o custo de <b>uma</b> carta do inimigo e ${this.isTouch() ? 'toque' : 'clique'} nela para derrubá-la. <b>♠ vale o dobro</b> e, com um ♠, você ${'marca'} <b>várias cartas</b> e ataca de uma vez. <b>Soma exata</b> compra 1 carta; derrotar todas as ${enemy.cards.length} compra 1 e vence.</p>
         <div class="combat-foe">
           <div class="foe-box">
-            <div class="foe"><i class="sprite enemy-sprite k-${enemy.kind}${hit ? ' hit' : ''}"></i></div>
+            <div class="foe">${enemy.kind === 'rat' ? RAT_SVG : `<i class="sprite enemy-sprite k-${enemy.kind}${hit ? ' hit' : ''}"></i>`}</div>
             <span class="foe-name">${ENEMY_NAME[enemy.kind] || 'Inimigo'}</span>
             ${this.abilityHTML(enemy)}
           </div>
@@ -2966,7 +2975,7 @@
         <ul>
           <li><b>Andar:</b> use 1 carta; o número é o alcance máximo em casas (A=1, J=11, Q=12, K=13). Só anda na vertical e horizontal. O que sobrar do movimento se perde.</li>
           <li><b>Abrir portas e baús:</b> fique ao lado, selecione cartas cuja soma seja pelo menos o custo. <b>Soma exata</b> compra 1 carta de graça; soma maior apenas abre.</li>
-          <li><b>Baú:</b> mostra 5 cartas do seu deck, você leva até 2 e o resto volta ao deck.</li>
+          <li><b>Baú:</b> mostra 5 cartas do seu deck, você leva até 2 e o resto volta ao deck. Todo baú guarda um prêmio. O que <b>custa cartas</b> é o grande: um <b>anel</b> (metade das vezes) ou, senão, um <b>Bife</b> garantido. O <b>destrancado</b> (marcado "grátis") abre sem gastar cartas e dá uma <b>Maçã</b> (em um a cada quatro, um anel).
           <li>Toda carta usada vai para o <b>cemitério</b> (o descarte) e <b>nunca volta</b> ao deck. Toque na pilha para ver o que já foi.</li>
           <li><b>Comida</b> (<b>Maçã</b> acrescenta <b>3 cartas novas</b> ao deck e <b>Bife</b>, 5), achada no chão, com inimigos e em baús: você come e as cartas entram em posições aleatórias. São sorteadas como se saíssem de um baralho completo, então o seu deck pode ficar com mais de um naipe, ou com cartas repetidas.</li>
         </ul>
@@ -2984,7 +2993,7 @@
         <h4>Zoom</h4>
         <p>Os botões + e − no canto do mapa (ou as teclas + e −) aproximam e afastam. Com zoom perto, o mapa acompanha o seu personagem; em 100% você vê a masmorra inteira. Para olhar outras salas, <b>arraste o mapa</b> (em qualquer ponto, inclusive na parte escura). O botão ◎ ao lado do zoom (ou a tecla C) volta para o personagem, e a câmera também volta sozinha quando ele anda.</p>
         <h4>Inimigos</h4>
-        <p>Um inimigo parado guarda uma sala, com <b>2 cartas</b> (<b>3 nos andares mais fundos</b>, os de foice e de manto): cada uma é como o custo de uma porta, mas <b>em alguns inimigos (cerca de 1 em 4) uma delas começa virada de costas</b> e só aparece quando você derruba outra. Há uma <b>zona vermelha</b> ao redor: a maioria tem 1 casa de alcance, mas <b>uns 30% têm alcance 2</b> e podem trancar a sala, aí só dá para passar lutando (ou fugindo). Os inimigos gastam as cartas que sobram no deck da dungeon depois das portas e dos baús, então o contador "Cartas da dungeon" mostra o que ainda cobra algo (portas, baús e cartas de inimigos). Se o seu caminho entra na zona, o movimento é cortado e começa o <b>combate</b>: escolha cartas da mão cuja soma seja pelo menos o custo de uma carta dele e derrube-a (soma exata compra 1 carta); o poder de ♥ funciona ali e o ♠ vale o dobro. Derrotando as 2 cartas você vence e compra 1 carta. Dá para <b>fugir</b> descartando 1 carta (você volta para fora da zona e as cartas já derrubadas continuam derrubadas), mas se for a sua última carta você perde.</p>
+        <p>Há também <b>ratos</b>: inimigos pequenos de <b>1 carta baixa</b> (1 a 5), com zona de 1 casa, espalhados pelas salas. Derrubar um custa pouco e rende menos (às vezes uma Maçã). Os inimigos grandes: um inimigo parado guarda uma sala, com <b>2 cartas</b> (<b>3 nos andares mais fundos</b>, os de foice e de manto): cada uma é como o custo de uma porta, mas <b>em alguns inimigos (cerca de 1 em 4) uma delas começa virada de costas</b> e só aparece quando você derruba outra. Há uma <b>zona vermelha</b> ao redor: a maioria tem 1 casa de alcance, mas <b>uns 30% têm alcance 2</b> e podem trancar a sala, aí só dá para passar lutando (ou fugindo). Os inimigos gastam as cartas que sobram no deck da dungeon depois das portas e dos baús, então o contador "Cartas da dungeon" mostra o que ainda cobra algo (portas, baús e cartas de inimigos). Se o seu caminho entra na zona, o movimento é cortado e começa o <b>combate</b>: escolha cartas da mão cuja soma seja pelo menos o custo de uma carta dele e derrube-a (soma exata compra 1 carta); o poder de ♥ funciona ali e o ♠ vale o dobro. Derrotando as 2 cartas você vence e compra 1 carta. Dá para <b>fugir</b> descartando 1 carta (você volta para fora da zona e as cartas já derrubadas continuam derrubadas), mas se for a sua última carta você perde.</p>
         <h4>Pergaminho de Inventário</h4>
         <p>Cada inimigo tem <b>30% de chance</b> de deixar um pergaminho <b>no lugar da carta de vitória</b>, e <b>30% dos baús</b> o guardam <b>no lugar das cartas</b>. Você já começa com <b>1 slot de brinde</b>, e cada pergaminho abre mais um (até 3 no total) ao lado da mão, onde você <b>guarda cartas</b> para usar depois. Para guardar, escolha 1 carta da mão e toque num slot livre (no baú, marque a carta e toque no slot: ela é guardada em vez de descartada). Toque na carta guardada para devolvê-la à mão. Guardar e devolver é grátis, a qualquer momento, até em combate, mas para <b>usar</b> a carta ela precisa estar na mão (o limite de 7 continua). Se a mão esvaziar mas houver cartas nos slots, você ainda não perdeu.</p>
         <h4>No iPad (toque)</h4>
