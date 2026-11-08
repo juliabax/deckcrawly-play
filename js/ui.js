@@ -1551,6 +1551,19 @@
       this.lowDeckOn = lowDeck;
     }
 
+    // Como usar os anéis ativos (Chave, Guerreiro e de naipe): escolher 1 carta e tocar no anel, gastando mana.
+    ringHintHTML() {
+      const g = this.game;
+      const cost = g.config.ringUseMana;
+      const active = g.rings.filter((r) => r && (DC.ROGUE.RINGS[r.ring].suit || DC.ROGUE.RINGS[r.ring].use));
+      if (!active.length) return '';
+      const one = this.sel.length === 1;
+      const names = active.map((r) => DC.ROGUE.RINGS[r.ring].short).join(', ');
+      if (g.mana < cost) return `<p class="muted"><b>Anel (${names}):</b> custa ${cost} de mana e você tem ${g.mana}. Escolha um ♦ e use o botão Poder para ganhar mana.</p>`;
+      if (!one) return `<p class="muted"><b>Anel (${names}):</b> escolha <b>1 carta</b> e toque no anel (linha "Anéis", ao lado da mão). Custa ${cost} de mana; você tem ${g.mana}.</p>`;
+      return `<p><b>Anel (${names}):</b> toque nele (linha "Anéis") para usar na carta escolhida. Custa ${cost} de mana; você tem ${g.mana}.</p>`;
+    }
+
     // Estoque de mana: se enche descartando ♦ (poder) e se gasta nos anéis.
     manaHTML() {
       const g = this.game;
@@ -1719,7 +1732,9 @@
     // Texto do emblema de uma carta da mão: o que ela faz de verdade (♦ dobra ao andar,
     // ♣ copia, ♥ compra e ♠ dobra no combate; a compra já é limitada pelo deck e pela mão).
     cardBadge(card) {
-      const text = this.cardBadgeText(card);
+      let text = this.cardBadgeText(card);
+      // Ferrugem: o número da carta não vale mais o que está escrito nela. Mostra o valor de verdade.
+      if (this.game.rusted() && card.suit === 'H') text += ` · vale ${this.game.cardValue(card)} (ferrugem)`;
       const boost = card.boost && (card.boost.pay || card.boost.fight);
       return boost ? `${text} · +${boost} anel` : text;
     }
@@ -1729,7 +1744,7 @@
       if (card.suit === 'D') return `mana +${g.cardValue(card)}`;
       if (card.suit === 'C') {
         const copied = g.jokerTarget(card);
-        return copied ? `copia ${copied.rank}` : `vale ${card.rank}`;
+        return copied ? `copia ${g.cardValue(card)}` : `vale ${g.cardValue(card)}`;
       }
       if (card.suit === 'S') return g.inCombat() ? `vale ${g.attackValue(card)}` : `combate ×2`;
       return `compra ${this.powerCount(card)}`;
@@ -1911,7 +1926,7 @@
           • <b>1 carta</b> usa o poder do naipe (♥ compra, ♦ vira mana).<br>
           • <b>Cartas somadas</b> abrem portas e baús ao seu lado.</p>${
             g.adjacentTargets().some((t) => t.kind === 'chest' && t.obj.free) ? `<p><b>Baú destrancado</b> ao seu lado: ${this.isTouch() ? 'toque' : 'clique'} nele para abrir de graça, sem gastar cartas.</p>` : ''
-          }`;
+          }${this.ringHintHTML()}`;
         return;
       }
 
@@ -1937,6 +1952,7 @@
           html += `<p><b>${name}</b> custo ${miniInline(t.obj.cost)} ${status}<br><span class="muted">${this.isTouch() ? 'Toque' : 'Clique'} nela no mapa para abrir.</span></p>`;
         }
       }
+      html += this.ringHintHTML();
       html += '<button class="btn" data-act="clear">Limpar seleção (Esc)</button>';
       panel.innerHTML = html;
     }
