@@ -6,7 +6,9 @@
     handMax: 5,
     chestOptions: 5,
     chestPicks: 2,
-    refillDraw: 1, // cartas compradas ao entrar numa sala nova (sempre respeitando handMax)
+    refillDraw: 1, // cartas compradas ao DESCER de andar (sempre respeitando handMax). Abrir a porta de uma sala nova não dá carta por si só
+    exactBonus: 1, // cartas de graça ao abrir uma porta ou baú com soma exata
+    flushBonus: 2, // ... e quando a soma exata é paga com 2 ou mais cartas do mesmo naipe
     roomsMin: 4,
     roomsMax: 6,
     loops: 1,
@@ -914,6 +916,9 @@
       if (!free && sum < cost) return fail(`Faltam ${cost - sum} para abrir (custo ${cost}).`);
 
       const exact = !free && sum === cost;
+      // Soma exata paga com 2 ou mais cartas do mesmo naipe: bônus maior.
+      const flush = exact && cards.length >= 2 && cards.every((c) => c.suit === cards[0].suit);
+      const bonusCards = exact ? (flush ? this.config.flushBonus : this.config.exactBonus) : 0;
       this.hand = this.hand.filter((c) => !cards.includes(c));
       this.discard.push(...cards);
       this.spent.open += cards.length;
@@ -938,12 +943,13 @@
       if (free) {
         this.log('O baú estava destrancado: abre de graça.', 'good');
       } else if (exact) {
+        const head = flush ? `Soma exata com o mesmo naipe! Abre ${label}` : `Soma exata! Abre ${label}`;
         if (newRoom) {
-          bonus = 1;
-          this.log(`Soma exata! Abre ${label} e ganha uma carta de graça.`, 'good');
+          bonus = bonusCards;
+          this.log(`${head} e ganha ${bonusCards === 1 ? 'uma carta' : `${bonusCards} cartas`} de graça.`, 'good');
         } else {
-          drawn = this.draw(1);
-          this.log(`Soma exata! Abre ${label}${drawn ? ' e compra uma carta de graça' : ''}.`, 'good');
+          drawn = this.draw(bonusCards);
+          this.log(`${head}${drawn ? ` e compra ${drawn === 1 ? 'uma carta' : `${drawn} cartas`} de graça` : ''}.`, 'good');
         }
       } else {
         this.log(`Abre ${label} gastando ${sum} (custo ${cost}), sem compra de volta.`);
@@ -956,9 +962,12 @@
         this.reinforced += ringCards.length;
         this.log(`${DC.ROGUE.RINGS.food.name}: ${ringCards.map((c) => `${DC.rankLabel(c.rank)}${DC.SUIT_SYMBOL[c.suit]}`).join(', ')} entra no seu deck.`, 'good');
       }
-      if (newRoom) {
-        this.pending = { type: 'refill', reason: 'door', bonus };
+      // A porta de uma sala nova não dá carta por si só: a janela só abre se há bônus (soma exata) ou o Anel do Deck.
+      if (newRoom && bonus + this.ringBonus('deck') > 0) {
+        this.pending = { type: 'refill', reason: 'door', bonus, draws: 0, flush };
         this.log('Sala nova à frente! Você ganha cartas.', 'good');
+      } else if (newRoom) {
+        this.log('Sala nova à frente.');
       }
 
       let scroll = false;
@@ -977,7 +986,7 @@
       }
       const turn = this.passTurn({});
       this.afterAction();
-      return { ok: true, exact, drawn, kind: target.kind, scroll, ringCards, combat: Boolean(turn.combat), woke: turn.woke || [] };
+      return { ok: true, exact, flush, bonusCards, drawn, kind: target.kind, scroll, ringCards, combat: Boolean(turn.combat), woke: turn.woke || [] };
     }
 
     resolveChest(pickIds, discardIds) {

@@ -79,10 +79,10 @@
         body: {
           approach: `Chegou a hora de abrir uma <b>porta</b>. Toque nela e o personagem vai até ficar <b>ao lado</b> (o cartãozinho pendurado mostra o custo).<br><span class="muted">As portas piscam no mapa.</span>`,
           pick: `Você está ao lado de uma porta. Escolha cartas da mão cuja <b>soma</b> seja <b>pelo menos o custo</b> dela.`,
-          pay: `Agora clique na <b>porta</b> para pagar com as cartas escolhidas.<br><span class="muted">Soma <b>exata</b> compra +1 carta de graça. Soma maior só abre.</span>`,
+          pay: `Agora clique na <b>porta</b> para pagar com as cartas escolhidas.<br><span class="muted">Soma <b>exata</b> compra +1 carta de graça (+2 se for paga com cartas do mesmo naipe). Soma maior só abre.</span>`,
         },
         done: {
-          door: `<b>Porta aberta!</b> As cartas gastas foram para o descarte. Se a soma foi exata você ganhou +1 carta de bônus.`,
+          door: `<b>Porta aberta!</b> As cartas gastas foram para o descarte. Se a soma foi exata você ganhou cartas de bônus (1, ou 2 se foi com cartas do mesmo naipe).`,
           chest: `<b>Baú aberto!</b> Funciona como uma porta: você paga o custo com a soma das cartas.`,
         },
       },
@@ -202,7 +202,7 @@
         kind: 'modal',
         title: 'Salas novas e névoa',
         body: `<p>Você só enxerga as salas que já abriu. A escada <b>▼</b> está escondida: é preciso explorar, mas cada carta gasta é vida.</p>
-          <p>Ao abrir a porta de uma <b>sala nova</b> você pode <b>descartar cartas</b> e <b>comprar 1</b> (sem passar de 5 na mão). Acertar a soma exata dá mais 1 de bônus.</p>
+          <p>Ao abrir a porta de uma <b>sala nova</b> a porta não dá carta por si só: só a <b>soma exata</b> compra (1 carta, ou 2 se for paga com cartas do mesmo naipe, sem passar de 5 na mão).</p>
           <p>Ao lado da mão você tem <b>1 slot de inventário</b> de brinde: escolha 1 carta e clique no slot para <b>guardá-la</b> em vez de gastá-la (clique nela para pegar de volta).</p>
           <p>Dentro das salas pode haver <b>inimigos</b> (zona vermelha) e <b>baús</b>. A gente te avisa na hora. Boa sorte!</p>
           <p class="muted">Dá para rever tudo pelo botão <b>Como jogar</b>, e as regras completas ficam em <b>Regras</b>.</p>`,
@@ -215,7 +215,7 @@
       start: { title: 'Sua vez', body: 'Toque numa casa do mapa para andar: <b>andar é de graça</b>, mas cada passo é um turno.' },
       door: {
         title: 'Uma porta!',
-        body: 'Escolha cartas da mão cuja <b>soma</b> seja pelo menos o custo da porta e clique nela. Soma <b>exata</b> compra +1 carta.',
+        body: 'Escolha cartas da mão cuja <b>soma</b> seja pelo menos o custo da porta e clique nela. Soma <b>exata</b> compra +1 carta (+2 se for paga com cartas do mesmo naipe).',
       },
       zone: {
         title: 'Zona vermelha',

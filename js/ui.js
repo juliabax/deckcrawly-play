@@ -829,7 +829,7 @@
         if (res.exact) {
           this.ring(c.x, c.y);
           this.burst(c.x, c.y, { count: 18 });
-          this.floatText(res.drawn ? '+1 carta' : 'Soma exata!', c.x, c.y - rect.height * 0.3, 'gold');
+          this.floatText(res.flush ? 'Mesmo naipe!' : res.drawn ? '+1 carta' : 'Soma exata!', c.x, c.y - rect.height * 0.3, 'gold');
         } else {
           this.burst(c.x, c.y, { count: 7, color: '#c9c2d6', spread: 30, size: 5 });
           this.floatText('sem compra', c.x, c.y - rect.height * 0.3, 'muted');
@@ -1859,7 +1859,9 @@
           exact = g.adjacentTargets().some((t) => t.obj.cost.rank === sum);
         }
       }
-      const star = exact ? '<span class="exact-tag">★ soma exata · +1 carta</span>' : '';
+      // Fora de combate, 2 ou mais cartas do mesmo naipe numa soma exata dão o bônus maior.
+      const flush = exact && !combat && cards.length >= 2 && cards.every((c) => c.suit === cards[0].suit);
+      const star = exact ? (combat ? '<span class="exact-tag">★ soma exata · +1 carta</span>' : `<span class="exact-tag">★ soma exata${flush ? ` · mesmo naipe · +${g.config.flushBonus} cartas` : ` · +${g.config.exactBonus} carta`}</span>`) : '';
       let html = `<h3>Seleção · soma ${sum}${ringPlus ? ` <small>(+${ringPlus} de anel)</small>` : ''}${star}</h3><div class="row">${cards.map(miniChip).join('')}</div>`;
       if (combat && cards.some((c) => c.suit === 'S')) {
         html += `<p class="muted">♠ vale o dobro em combate (${cards
@@ -1946,8 +1948,10 @@
             html += `<p><b>Baú destrancado</b> <span class="tag exact">abre de graça</span><br><span class="muted">${this.isTouch() ? 'Toque' : 'Clique'} nele no mapa: as cartas escolhidas não são gastas.</span></p>`;
             continue;
           }
-          if (sum === cost) status = '<span class="tag exact">soma exata · compra 1 carta</span>';
-          else if (sum > cost) status = '<span class="tag ok">abre · sem compra</span>';
+          if (sum === cost) {
+            const same = cards.length >= 2 && cards.every((c) => c.suit === cards[0].suit);
+            status = `<span class="tag exact">soma exata · ${same ? `mesmo naipe: compra ${g.config.flushBonus} cartas` : `compra ${g.config.exactBonus} carta`}</span>`;
+          } else if (sum > cost) status = '<span class="tag ok">abre · sem compra</span>';
           else status = `<span class="tag no">faltam ${cost - sum}</span>`;
           html += `<p><b>${name}</b> custo ${miniInline(t.obj.cost)} ${status}<br><span class="muted">${this.isTouch() ? 'Toque' : 'Clique'} nela no mapa para abrir.</span></p>`;
         }
@@ -2783,7 +2787,7 @@
             const c = centerOf(card.getBoundingClientRect());
             this.ring(c.x, c.y);
             this.burst(c.x, c.y, { count: 22, spread: 95, color: '#ffd76a' });
-            this.floatText('+1 carta', c.x, c.y - 90, 'gold');
+            this.floatText(this.game.pending && this.game.pending.flush ? 'Mesmo naipe!' : '+1 carta', c.x, c.y - 90, 'gold');
             this.sound('ding', 0.4);
           }, 1250);
         }
@@ -2825,7 +2829,7 @@
       const anim = this.overlayFresh && this.fxOn;
       const slots = gain
         .map(({ card, extra }, i) => {
-          const tag = extra ? 'Carta extra: soma exata!' : floorStart ? 'Novo andar' : 'Sala nova';
+          const tag = extra ? (g.pending.flush ? 'Soma exata, mesmo naipe!' : 'Carta extra: soma exata!') : floorStart ? 'Novo andar' : 'Sala nova';
           return `<div class="reveal-slot${extra ? ' extra' : ''}" style="--k:${i}">
             ${extra ? '<span class="reveal-badge">+1 BÔNUS</span>' : ''}
             <div class="flip${anim ? ' anim' : ''}">
@@ -3084,7 +3088,7 @@
         <h4>Cartas</h4>
         <ul>
           <li><b>Andar é de graça</b>, por turnos (como no Rogue): toque numa casa e o personagem vai passo a passo (ou use as setas do teclado). Só anda na vertical e horizontal. <b>Cada passo é um turno</b>, e abrir uma porta ou um baú também passa um turno. Depois do seu turno os inimigos agem.</li>
-          <li><b>Abrir portas e baús:</b> fique ao lado, selecione cartas cuja soma seja pelo menos o custo. <b>Soma exata</b> compra 1 carta de graça; soma maior apenas abre.</li>
+          <li><b>Abrir portas e baús:</b> fique ao lado, selecione cartas cuja soma seja pelo menos o custo. <b>Soma exata</b> compra ${this.game.config.exactBonus} carta de graça; se a soma exata for paga com <b>2 ou mais cartas do mesmo naipe</b>, compra ${this.game.config.flushBonus}. Soma maior apenas abre.</li>
           <li><b>Baú:</b> mostra 5 cartas do seu deck, você leva até 2 e o resto volta ao deck. Todo baú guarda um prêmio. O que <b>custa cartas</b> é o grande: um <b>anel</b> (metade das vezes) ou, senão, um <b>Bife</b> garantido. O <b>destrancado</b> (marcado "grátis") abre sem gastar cartas e dá uma <b>Maçã</b> (em um a cada quatro, um anel).
           <li>Toda carta usada vai para o <b>cemitério</b> (o descarte) e <b>nunca volta</b> ao deck. Toque na pilha para ver o que já foi.</li>
           <li><b>Comida</b> (<b>Maçã</b> acrescenta <b>3 cartas novas</b> ao deck e <b>Bife</b>, 5), achada no chão, com inimigos e em baús: você come e as cartas entram em posições aleatórias. São sorteadas como se saíssem de um baralho completo, então o seu deck pode ficar com mais de um naipe, ou com cartas repetidas.</li>
@@ -3109,7 +3113,7 @@
         <h4>No iPad (toque)</h4>
         <p>Toque numa carta para escolher (toque de novo para soltar). Toque numa casa para <b>andar até lá</b> (andar é de graça). Toque numa porta ou baú ao seu lado para abrir; se estiver longe, o personagem vai até ao lado dela. <b>Arraste o mapa com o dedo</b> para olhar outras salas; o botão ◎ volta para o personagem.</p>
         <h4>Salas novas</h4>
-        <p>Ao abrir a porta de uma sala nova (ou ao descer de andar) você ganha ${this.game.config.refillDraw} carta do seu deck, sem passar do limite de ${this.game.config.handMax} na mão: ela aparece de costas e vira. Se a porta foi aberta com soma exata, você ainda ganha mais uma carta de graça, que vira junto.</p>
+        <p>Ao <b>descer de andar</b> você ganha ${this.game.config.refillDraw} carta do seu deck, sem passar do limite de ${this.game.config.handMax} na mão: ela aparece de costas e vira. Abrir a porta de uma sala nova <b>não dá carta por si só</b>: só ganha cartas quem abre com <b>soma exata</b> (${this.game.config.exactBonus}, ou ${this.game.config.flushBonus} com 2 ou mais cartas do mesmo naipe), que viram numa janelinha antes de entrar na sala.</p>
         <h4>Atalhos</h4>
         <p>Setas andam um passo; teclas 1–5 selecionam cartas da mão; Esc limpa a seleção; F liga/desliga a névoa; E liga/desliga os efeitos; M liga/desliga o som; A alterna a arte de pixel art; + e − aproximam e afastam o mapa; C centraliza no personagem.</p>
         ${this.artAvailable ? '<p class="muted">Arte do mapa, dos inimigos e do herói: pixel art de <b>Pixel_Poem</b> (pixel-poem.itch.io).</p>' : ''}
