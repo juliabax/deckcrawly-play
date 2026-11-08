@@ -150,7 +150,7 @@
         scenes: [
           {
             focus: 'hand',
-            lines: ['Espadas ♠ são as cartas de combate: valem o dobro quando você luta.', 'E uma só espada pode derrubar várias cartas do inimigo, se o valor dobrado cobrir todas.'],
+            lines: ['Espadas ♠ são as cartas de combate: valem o número ou o dobro quando você luta.', 'Assim casam com dois valores. E uma só espada pode derrubar várias cartas do inimigo, se o valor dobrado cobrir todas.'],
           },
         ],
       },
@@ -190,7 +190,7 @@
         body: `<p>Uma carta sozinha também pode ativar o <b>poder do naipe</b> (o número é a intensidade):</p>
           <ul>
             <li><b>♥ Copas:</b> compra até N cartas (a mão vai até 5).</li>
-            <li><b>♠ Espadas:</b> em combate vale o dobro e derruba várias cartas do inimigo.</li>
+            <li><b>♠ Espadas:</b> em combate vale o número ou o dobro e derruba várias cartas do inimigo.</li>
             <li><b>♦ Ouros:</b> <b>mana</b>: vira mana igual ao número, que paga o uso dos anéis.</li>
             <li><b>♣ Paus:</b> <b>coringa</b>. Vale o próprio número ou copia o de outra carta da mão.</li>
           </ul>
@@ -241,7 +241,7 @@
       handOut: 'Lembre-se de usar cartas de copas ♥ para repor sua mão!',
       deckOut: 'Seu deck zerou! Carta usada não volta: gaste com cuidado e procure comida (Maçã e Bife) pela masmorra.',
       flee: 'Fugir custa uma carta. Com a mão curta, vale mais não acordar o inimigo ou lutar pela soma exata.',
-      combat: 'Em combate, use espadas ♠: elas valem o dobro e uma só pode derrubar várias cartas do inimigo. A soma exata compra 1 carta!',
+      combat: 'Em combate, use espadas ♠: elas valem o número ou o dobro e uma só pode derrubar várias cartas do inimigo. A soma exata compra 1 carta!',
       fallback: 'Carta usada não volta. Explore com calma (andar é de graça), mas gaste as cartas com cuidado.',
     },
 
@@ -550,7 +550,7 @@
       lines.push(
         `Cartas gastas por tipo: portas e baús ${sp.open} · combate ${sp.attack} · poder (♥ e ♦) ${sp.power} · fuga ${sp.flee} · dardos ${sp.trap}`,
       );
-      lines.push(`♠ gastos: ${sp.spadeAttack} em combate (valem o dobro) · ${sp.spadeOther} fora do combate (portas, poder, fuga: o dobro se perde)`);
+      lines.push(`♠ gastos: ${sp.spadeAttack} em combate (valem o número ou o dobro) · ${sp.spadeOther} fora do combate (portas, poder, fuga: o dobro se perde)`);
     }
     lines.push(`Pergaminhos de Inventário: ${stats.scrolls} · cartas guardadas ${stats.stashes} vezes`);
     lines.push(`Anéis: ${stats.ringsFound} achados, ${stats.ringsWorn} vestidos · no dedo no fim: ${game.rings.filter(Boolean).map((r) => DC.ROGUE.RINGS[r.ring].name).join(', ') || 'nenhum'} · usos de anel: ${stats.ringUses} · cartas do Anel da Comida: ${stats.ringFoodCards}`);

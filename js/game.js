@@ -517,10 +517,27 @@
       return card.suit === 'S' ? value * 2 : value;
     }
 
-    // A soma de uma jogada de combate inclui o bônus do Anel do Guerreiro.
+    // A soma de uma jogada de combate inclui o bônus do Anel do Guerreiro. Com ♠ é a soma MAIOR (todos dobrados):
+    // é a que derruba mais, mas o ♠ também pode valer só o número (veja attackSums).
     attackSum(ids) {
       const cards = this.handCards(ids);
       return cards && cards.length ? cards.reduce((sum, c) => sum + this.attackValue(c) + this.boostOf(c, 'fight'), 0) : 0;
+    }
+
+    // Todas as somas possíveis de uma jogada de combate, da menor para a maior: cada ♠ vale o número OU o dobro
+    // (a vantagem do naipe: dá para casar com o valor original ou com o dobrado). Sem ♠ há uma soma só.
+    attackSums(ids) {
+      const cards = this.handCards(ids);
+      if (!cards || !cards.length) return [0];
+      let sums = new Set([0]);
+      for (const c of cards) {
+        const value = this.cardValue(c);
+        const options = c.suit === 'S' ? [value, value * 2] : [value];
+        const next = new Set();
+        for (const s of sums) for (const o of options) next.add(s + o + this.boostOf(c, 'fight'));
+        sums = next;
+      }
+      return [...sums].sort((a, b) => a - b);
     }
 
     // A soma para pagar portas e baús inclui o +2 que um Anel da Chave pôs em cada carta.
@@ -1088,10 +1105,13 @@
       if (targets.length > 1 && !cards.some((c) => c.suit === 'S')) return fail('Só com uma carta de ♠ dá para derrubar mais de uma carta do inimigo de uma vez.');
 
       const cost = targets.reduce((total, t) => total + t.rank, 0);
-      const sum = this.attackSum(cardIds);
-      if (sum < cost) return fail(`Faltam ${cost - sum} para derrotar ${targets.length > 1 ? 'essas cartas' : 'essa carta'} (custo ${cost}).`);
+      const sums = this.attackSums(cardIds);
+      const best = sums[sums.length - 1];
+      if (best < cost) return fail(`Faltam ${cost - best} para derrotar ${targets.length > 1 ? 'essas cartas' : 'essa carta'} (custo ${cost}).`);
 
-      const exact = sum === cost;
+      // ♠ vale o número ou o dobro: se alguma combinação dá a soma exata, é ela (e compra 1 carta).
+      const exact = sums.includes(cost);
+      const sum = exact ? cost : best;
       this.hand = this.hand.filter((c) => !cards.includes(c));
       this.discard.push(...cards);
       this.spent.attack += cards.length;

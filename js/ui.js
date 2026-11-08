@@ -15,7 +15,7 @@
   const afterAnim = (anim, fn) => anim.finished.then(fn, fn);
 
   const SUIT_HINT = {
-    S: 'Em combate vale o dobro e uma só pode derrubar várias cartas do inimigo.',
+    S: 'Em combate vale o número ou o dobro (casa com os dois) e uma só pode derrubar várias cartas do inimigo.',
     H: 'Poder: compra até N cartas (N = número da carta).',
     D: 'Ao andar, o número da carta vale em dobro.',
     C: 'Coringa: vale o próprio número, ou copia o rank de outra carta da mão se você escolher.',
@@ -463,6 +463,7 @@
     centerCamera() {
       if (!this.view) return;
       this.view = null;
+      this.recenter = true;
       this.placeCamera(this.game.player.x, this.game.player.y, true);
     }
 
@@ -1746,7 +1747,7 @@
         const copied = g.jokerTarget(card);
         return copied ? `copia ${g.cardValue(card)}` : `vale ${g.cardValue(card)}`;
       }
-      if (card.suit === 'S') return g.inCombat() ? `vale ${g.attackValue(card)}` : `combate ×2`;
+      if (card.suit === 'S') return g.inCombat() ? `vale ${g.cardValue(card)} ou ${g.attackValue(card)}` : `combate ×2`;
       return `compra ${this.powerCount(card)}`;
     }
 
@@ -1836,6 +1837,8 @@
       const cards = g.handCards(this.sel) || [];
       // No combate o ♠ vale o dobro; nas portas e no andar, só o número.
       const sum = combat ? g.attackSum(this.sel) : g.payTotal(this.sel);
+      // Cada ♠ vale o número OU o dobro: `sums` são todas as somas possíveis (a maior é `sum`).
+      const sums = combat ? g.attackSums(this.sel) : [sum];
       const ringPlus = cards.reduce((n, c) => n + g.boostOf(c, combat ? 'fight' : 'pay'), 0);
       // Soma exata: bate com o custo de uma carta do inimigo (ou, com ♠, de um grupo de cartas) ou de uma
       // porta/baú ao lado. É a melhor jogada (compra 1 carta), então o box inteiro ganha destaque.
@@ -1846,14 +1849,14 @@
           const foes = this.foeTargets(enemy);
           const marked = this.markedTargets();
           if (marked.length) {
-            exact = marked.reduce((n, c) => n + c.rank, 0) === sum;
+            exact = sums.includes(marked.reduce((n, c) => n + c.rank, 0));
           } else if (cards.some((c) => c.suit === 'S')) {
             // qualquer grupo de cartas à vista que some exatamente o que a seleção vale
             for (let mask = 1; mask < 1 << foes.length && !exact; mask++) {
-              exact = foes.reduce((n, c, i) => (mask & (1 << i) ? n + c.rank : n), 0) === sum;
+              exact = sums.includes(foes.reduce((n, c, i) => (mask & (1 << i) ? n + c.rank : n), 0));
             }
           } else {
-            exact = foes.some((c) => c.rank === sum);
+            exact = foes.some((c) => sums.includes(c.rank));
           }
         } else {
           exact = g.adjacentTargets().some((t) => t.obj.cost.rank === sum);
@@ -1862,12 +1865,12 @@
       // Fora de combate, 2 ou mais cartas do mesmo naipe numa soma exata dão o bônus maior.
       const flush = exact && !combat && cards.length >= 2 && cards.every((c) => c.suit === cards[0].suit);
       const star = exact ? (combat ? '<span class="exact-tag">★ soma exata · +1 carta</span>' : `<span class="exact-tag">★ soma exata${flush ? ` · mesmo naipe · +${g.config.flushBonus} cartas` : ` · +${g.config.exactBonus} carta`}</span>`) : '';
-      let html = `<h3>Seleção · soma ${sum}${ringPlus ? ` <small>(+${ringPlus} de anel)</small>` : ''}${star}</h3><div class="row">${cards.map(miniChip).join('')}</div>`;
+      let html = `<h3>Seleção · soma ${sum}${sums.length > 1 ? ` <small>(ou ${sums.slice(0, -1).join(', ')})</small>` : ''}${ringPlus ? ` <small>(+${ringPlus} de anel)</small>` : ''}${star}</h3><div class="row">${cards.map(miniChip).join('')}</div>`;
       if (combat && cards.some((c) => c.suit === 'S')) {
-        html += `<p class="muted">♠ vale o dobro em combate (${cards
+        html += `<p class="muted">♠ vale o número <b>ou o dobro</b> em combate (${cards
           .filter((c) => c.suit === 'S')
-          .map((c) => `${g.cardValue(c)}→${g.attackValue(c)}`)
-          .join(', ')}) e pode derrubar várias cartas do inimigo.</p>`;
+          .map((c) => `${g.cardValue(c)} ou ${g.attackValue(c)}`)
+          .join(', ')}): casa com os dois valores e pode derrubar várias cartas do inimigo.</p>`;
       }
 
       for (const joker of cards.filter((c) => c.suit === 'C')) {
@@ -1881,7 +1884,7 @@
           )
           .join('')}</div>`;
       }
-      return { html, sum, cards, exact };
+      return { html, sum, sums, cards, exact };
     }
 
     // Botão do poder (só ♥ compra cartas): fica ao lado da mão e também dentro da janela de combate.
@@ -2131,23 +2134,37 @@
       // escura de 10 casas em volta, para a borda não ficar presa no canto da tela.
       // A folga cobre ao menos metade da área, para qualquer ponto do mapa poder chegar ao centro da tela.
       // Vale também nos dois eixos quando o mapa cabe na área (antes ele ficava preso, sem arrastar).
-      const axis = (size, total, pos, dragged) => {
+      // Sem arrastar, a câmera tem uma ZONA MORTA: o mapa fica parado enquanto o personagem anda no miolo da tela
+      // e só desliza (o mínimo) quando ele chega perto da borda. Antes ela o centralizava a cada passo, e a
+      // masmorra "mudava de lugar" sozinha. Andar de andar, mudar o zoom ou o botão de centralizar recentralizam.
+      const prevCam = this.camera;
+      const keep = !this.recenter && prevCam && prevCam.floor === this.game.floorNo && prevCam.tile === this.tile;
+      this.recenter = false;
+      const axis = (size, total, pos, dragged, prev) => {
         const gap = Math.max(PAN_GAP * this.tile, size / 2);
         if (dragged !== null) return Math.min(Math.max(size - total, 0) + gap, Math.max(Math.min(size - total, 0) - gap, dragged));
         if (total <= size) return (size - total) / 2;
-        return Math.min(0, Math.max(size - total, size / 2 - (pos + 0.5) * this.tile));
+        const clamp = (v) => Math.min(0, Math.max(size - total, v));
+        const centered = clamp(size / 2 - (pos + 0.5) * this.tile);
+        if (prev === null) return centered;
+        const p = (pos + 0.5) * this.tile + prev;
+        if (p < 0 || p > size) return centered;
+        const margin = Math.min(size * 0.4, Math.max(2 * this.tile, size * 0.28));
+        if (p < margin) return clamp(prev + (margin - p));
+        if (p > size - margin) return clamp(prev - (p - (size - margin)));
+        return clamp(prev);
       };
       const w = wrap.clientWidth;
       const h = wrap.clientHeight;
-      let tx = axis(w, f.w * this.tile, x, this.view ? this.view.tx : null);
-      let ty = axis(h, f.h * this.tile, y, this.view ? this.view.ty : null);
+      let tx = axis(w, f.w * this.tile, x, this.view ? this.view.tx : null, keep ? prevCam.tx : null);
+      let ty = axis(h, f.h * this.tile, y, this.view ? this.view.ty : null, keep ? prevCam.ty : null);
       if (this.game.tutorial) {
         // Posição fixa: centralizado na horizontal e na parte de baixo da área, com folga em cima.
         tx = (w - f.w * this.tile) / 2;
         ty = Math.max(0, h - f.h * this.tile - h * 0.17);
         this.view = null;
       }
-      this.camera = { tx, ty };
+      this.camera = { tx, ty, floor: this.game.floorNo, tile: this.tile };
       wrap.classList.toggle('pannable', !this.game.tutorial);
       document.getElementById('btn-center').disabled = !this.view;
       if (!animate) map.style.transition = 'none';
@@ -2945,14 +2962,14 @@
     combatHTML() {
       const g = this.game;
       const enemy = g.combatEnemy();
-      const { html: selHTML, sum, cards, exact } = this.selectionHTML(true);
+      const { html: selHTML, sum, sums, cards, exact } = this.selectionHTML(true);
       const flipped = this.revealIds;
       this.revealIds = [];
       const multi = this.multiMode();
       if (!multi) this.targets = new Set();
       const marked = multi ? this.markedTargets() : [];
       const markedCost = marked.reduce((n, c) => n + c.rank, 0);
-      const markedState = marked.length && cards.length ? (sum === markedCost ? ' exact' : sum > markedCost ? ' ok' : ' no') : '';
+      const markedState = marked.length && cards.length ? (sums.includes(markedCost) ? ' exact' : sum > markedCost ? ' ok' : ' no') : '';
       const enemyRow = enemy.cards
         .map((c) => {
           if (isHiddenCard(enemy, c)) {
@@ -2969,8 +2986,8 @@
               badge = markedState === ' exact' ? 'soma exata' : markedState === ' ok' ? 'derruba' : markedState === ' no' ? `faltam ${markedCost - sum}` : `alvo ${c.rank}`;
             }
           } else if (cards.length) {
-            state = sum === c.rank ? ' exact' : sum > c.rank ? ' ok' : ' no';
-            badge = sum === c.rank ? 'soma exata · +1 carta' : sum > c.rank ? 'derruba' : `faltam ${c.rank - sum}`;
+            state = sums.includes(c.rank) ? ' exact' : sum > c.rank ? ' ok' : ' no';
+            badge = sums.includes(c.rank) ? 'soma exata · +1 carta' : sum > c.rank ? 'derruba' : `faltam ${c.rank - sum}`;
           }
           const html = cardHTML(c, { badge, extra: `enemy-card${down ? ' down' : ''}${state}${flipped.includes(c.id) ? ' flip' : ''}` });
           return down ? html : html.replace('class="card', 'data-ov="attack" class="card');
@@ -2997,7 +3014,7 @@
         : '<div></div>';
       return `<div class="modal combat">
         <h2>⚔ Combate!</h2>
-        <p class="combat-help">${this.isTouch() ? 'Toque' : 'Escolha'} cartas da mão cuja <b>soma</b> seja pelo menos o custo de <b>uma</b> carta do inimigo e ${this.isTouch() ? 'toque' : 'clique'} nela para derrubá-la. <b>♠ vale o dobro</b> e, com um ♠, você ${'marca'} <b>várias cartas</b> e ataca de uma vez. <b>Soma exata</b> compra 1 carta; derrotar todas as ${enemy.cards.length} compra 1 e vence.</p>
+        <p class="combat-help">${this.isTouch() ? 'Toque' : 'Escolha'} cartas da mão cuja <b>soma</b> seja pelo menos o custo de <b>uma</b> carta do inimigo e ${this.isTouch() ? 'toque' : 'clique'} nela para derrubá-la. <b>♠ vale o número ou o dobro</b> e, com um ♠, você ${'marca'} <b>várias cartas</b> e ataca de uma vez. <b>Soma exata</b> compra 1 carta; derrotar todas as ${enemy.cards.length} compra 1 e vence.</p>
         <div class="combat-foe">
           <div class="foe-box">
             <div class="foe">${enemy.kind === 'rat' ? RAT_SVG : `<i class="sprite enemy-sprite k-${enemy.kind}${hit ? ' hit' : ''}"></i>`}</div>
@@ -3014,7 +3031,7 @@
           </div>
           ${stash}
         </div>
-        <div class="combat-sel${exact ? ' exact' : ''}">${cards.length ? selHTML : '<p class="muted">Escolha cartas da mão. O poder de ♥ (comprar) funciona aqui, e o ♠ vale o dobro.</p>'}</div>
+        <div class="combat-sel${exact ? ' exact' : ''}">${cards.length ? selHTML : '<p class="muted">Escolha cartas da mão. O poder de ♥ (comprar) funciona aqui, e o ♠ vale o número ou o dobro.</p>'}</div>
         <div class="actions">
           ${multi ? `<button class="btn primary" data-ov="attack-go" ${marked.length && sum >= markedCost ? '' : 'disabled'}>${marked.length ? `Atacar ${marked.length} carta${marked.length === 1 ? '' : 's'} (custo ${markedCost})` : 'Marque as cartas do inimigo'}</button>` : ''}
           ${g.rings.map((r, i) => (r && (DC.ROGUE.RINGS[r.ring].suit || DC.ROGUE.RINGS[r.ring].use) ? `<button class="btn ring-btn" data-ring="${i}" ${g.mana >= g.config.ringUseMana ? '' : 'disabled'} title="${DC.ROGUE.RINGS[r.ring].text} Custa ${g.config.ringUseMana} de mana.">${DC.ROGUE.RINGS[r.ring].short} ${DC.ROGUE.RINGS[r.ring].name} (${g.config.ringUseMana} mana)</button>` : '')).join('')}
@@ -3116,7 +3133,7 @@
         <h4>Poderes (o número da carta é a intensidade)</h4>
         <ul>
           <li><b>♥ Copas:</b> compra até N cartas (mão máxima de ${this.game.config.handMax}).</li>
-          <li><b>♠ Espadas:</b> em combate vale o <b>dobro</b>, e com um ♠ você derruba <b>várias cartas</b> do inimigo de uma vez, se o valor cobrir todas. Fora do combate vale só o número.</li>
+          <li><b>♠ Espadas:</b> em combate vale o <b>número ou o dobro</b> (casa com os dois valores), e com um ♠ você derruba <b>várias cartas</b> do inimigo de uma vez, se o valor cobrir todas. Fora do combate vale só o número.</li>
           <li><b>♦ Ouros:</b> mana. Descarte um ♦ pelo poder e ganhe mana igual ao número dele (até o teto de ${this.game.config.manaMax}). A mana fica guardada e é gasta nos anéis.</li>
           <li><b>♣ Paus:</b> coringa. Vale o próprio número, mas você pode escolher copiar o rank de outra carta da mão.</li>
         </ul>
@@ -3127,7 +3144,7 @@
         <h4>Zoom</h4>
         <p>Os botões + e − no canto do mapa (ou as teclas + e −) aproximam e afastam. O zoom tem tamanhos fixos (100% = casas de 40 px, sempre igual), de 60% a 300%. Quando o mapa passa da tela, ele acompanha o seu personagem. Para olhar outras salas, <b>arraste o mapa</b> (em qualquer ponto, inclusive na parte escura). O botão ◎ ao lado do zoom (ou a tecla C) volta para o personagem, e a câmera também volta sozinha quando ele anda.</p>
         <h4>Inimigos</h4>
-        <p>Os inimigos <b>começam dormindo</b>. Se você termina um turno na <b>zona vermelha</b> ao redor de um (1 casa, e uns 30% têm 2), ele pode <b>acordar</b>: cerca de 2 em 3 para os grandes e 1 em 3 para os ratos. Acordado, ele <b>anda uma casa por turno atrás de você</b>, <b>até em outras salas</b> (passa por portas que você já abriu, mas não abre as fechadas), e quando encosta começa o <b>combate</b>. Ele te segue enquanto <b>te vê</b> (uns 5 casas, sem parede no meio; da porta ele só vê em linha reta). Se você sai da vista, ele vai até o último lugar onde te viu (<b>?</b>) e, depois de uns 3 turnos sem te achar, <b>desiste e volta a dormir</b>. Descer a escada também escapa. Você também pode atacar um que dorme, tocando nele. Há <b>ratos</b>: inimigos pequenos de <b>1 carta baixa</b> (1 a 5), que rendem menos (às vezes uma Maçã). Os grandes têm <b>2 cartas</b> (<b>3 nos andares mais fundos</b>): cada uma é como o custo de uma porta, mas <b>em alguns (cerca de 1 em 4) uma delas começa virada de costas</b> e só aparece quando você derruba outra. No combate, escolha cartas da mão cuja soma seja pelo menos o custo de uma carta dele e derrube-a (soma exata compra 1 carta); o poder de ♥ funciona ali e o ♠ vale o dobro. Derrotando todas as cartas você vence e compra 1 carta. Dá para <b>fugir</b> descartando 1 carta: o inimigo fica parado por 3 turnos, dando tempo de sair da vista dele (as cartas já derrubadas continuam derrubadas), mas se for a sua última carta você perde.</p>
+        <p>Os inimigos <b>começam dormindo</b>. Se você termina um turno na <b>zona vermelha</b> ao redor de um (1 casa, e uns 30% têm 2), ele pode <b>acordar</b>: cerca de 2 em 3 para os grandes e 1 em 3 para os ratos. Acordado, ele <b>anda uma casa por turno atrás de você</b>, <b>até em outras salas</b> (passa por portas que você já abriu, mas não abre as fechadas), e quando encosta começa o <b>combate</b>. Ele te segue enquanto <b>te vê</b> (uns 5 casas, sem parede no meio; da porta ele só vê em linha reta). Se você sai da vista, ele vai até o último lugar onde te viu (<b>?</b>) e, depois de uns 3 turnos sem te achar, <b>desiste e volta a dormir</b>. Descer a escada também escapa. Você também pode atacar um que dorme, tocando nele. Há <b>ratos</b>: inimigos pequenos de <b>1 carta baixa</b> (1 a 5), que rendem menos (às vezes uma Maçã). Os grandes têm <b>2 cartas</b> (<b>3 nos andares mais fundos</b>): cada uma é como o custo de uma porta, mas <b>em alguns (cerca de 1 em 4) uma delas começa virada de costas</b> e só aparece quando você derruba outra. No combate, escolha cartas da mão cuja soma seja pelo menos o custo de uma carta dele e derrube-a (soma exata compra 1 carta); o poder de ♥ funciona ali e o ♠ vale o número ou o dobro, o que der a soma exata. Derrotando todas as cartas você vence e compra 1 carta. Dá para <b>fugir</b> descartando 1 carta: o inimigo fica parado por 3 turnos, dando tempo de sair da vista dele (as cartas já derrubadas continuam derrubadas), mas se for a sua última carta você perde.</p>
         <h4>Pergaminho de Inventário</h4>
         <p>Cada inimigo tem <b>30% de chance</b> de deixar um pergaminho <b>no lugar da carta de vitória</b>, e <b>30% dos baús</b> o guardam <b>no lugar das cartas</b>. Você já começa com <b>1 slot de brinde</b>, e cada pergaminho abre mais um (até 3 no total) ao lado da mão, onde você <b>guarda cartas</b> para usar depois. Para guardar, escolha 1 carta da mão e toque num slot livre (no baú, marque a carta e toque no slot: ela é guardada em vez de descartada). Toque na carta guardada para devolvê-la à mão. Guardar e devolver é grátis, a qualquer momento, até em combate, mas para <b>usar</b> a carta ela precisa estar na mão (o limite de 7 continua). Se a mão esvaziar mas houver cartas nos slots, você ainda não perdeu.</p>
         <h4>No iPad (toque)</h4>
