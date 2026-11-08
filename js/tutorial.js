@@ -24,25 +24,22 @@
         id: 'move',
         kind: 'coach',
         wait: 'move',
-        // Assim que a pessoa escolhe uma carta, o foco volta no personagem e na carta e o texto digita.
-        // Não bloqueia nada: é só andar por um dos quadrados marcados.
+        // Andar é de graça (por turnos, como no Rogue): é só tocar numa casa. Não bloqueia nada.
         auto: 900, // ao concluir, o próximo passo começa sozinho depois deste tempo (ms)
         spots: [
           {
-            id: 'move-card',
-            trigger: 'card', // aparece quando 1 carta é escolhida
+            id: 'move-go',
+            trigger: 'any',
             silent: true, // enquanto espera a ação, o cartão lateral fica só com progresso e "pular"
-            focus: ['player', 'card'],
-            lines: ['Você pode usar uma carta para se mover. Cada número da carta é uma casa no grid.', 'Escolha um dos quadrados marcados e ande.'],
+            focus: ['player'],
+            lines: ['Andar não gasta cartas.', 'Toque numa casa do mapa e o personagem vai até lá. Cada passo é um turno.'],
           },
         ],
         title: 'Andar',
-        variant: (c) => (c.selected ? 'picked' : 'idle'),
         body: {
-          idle: `Cada carta da sua mão é um <b>movimento</b>. Escolha <b>1 carta</b> lá embaixo.<br><span class="muted">O número é o alcance máximo em casas (A=1 … J=11, Q=12, K=13), só na vertical e na horizontal.</span>`,
-          picked: `Agora clique numa <b>casa dourada</b> do mapa para andar até lá.<br><span class="muted">Dá para ir menos longe do que o número da carta, mas o que sobrar se perde.</span>`,
+          default: `Andar é <b>de graça</b>. Toque numa casa do mapa (ou use as <b>setas</b> do teclado) e o personagem vai até lá.<br><span class="muted">Só na vertical e na horizontal. Cada passo é um <b>turno</b>: os inimigos também se mexem.</span>`,
         },
-        done: { default: `<b>Isso!</b> A carta usada foi para o <b>descarte</b>. Cada passo custa uma carta, então pense onde vale a pena gastar.` },
+        done: { default: `<b>Isso!</b> Andar não custa carta, mas cada passo é um turno. As cartas são para abrir portas, lutar e usar poderes.` },
       },
       {
         id: 'door',
@@ -54,9 +51,8 @@
           {
             id: 'door-away',
             trigger: 'away', // ainda não está ao lado de uma porta fechada
-            pulse: 'hand', // a mão pulsa até uma carta ser escolhida
-            focus: ['door', 'hand'], // a mão também: a pessoa precisa saber que são as cartas que movem
-            lines: ['Para explorar a masmorra, vai ser necessário abrir as portas.', 'Chegue até a casa adjacente usando uma carta para se mover.'],
+            focus: ['door'],
+            lines: ['Para explorar a masmorra, vai ser necessário abrir as portas.', 'Toque na porta: o personagem vai até a casa ao lado dela.'],
           },
           {
             id: 'door-near',
@@ -81,7 +77,7 @@
         title: 'Portas',
         variant: (c) => (c.adjacent ? (c.selected ? 'pay' : 'pick') : 'approach'),
         body: {
-          approach: `Chegou a hora de abrir uma <b>porta</b>. Ande até ficar <b>ao lado</b> de uma (o cartãozinho pendurado mostra o custo).<br><span class="muted">As portas piscam no mapa.</span>`,
+          approach: `Chegou a hora de abrir uma <b>porta</b>. Toque nela e o personagem vai até ficar <b>ao lado</b> (o cartãozinho pendurado mostra o custo).<br><span class="muted">As portas piscam no mapa.</span>`,
           pick: `Você está ao lado de uma porta. Escolha cartas da mão cuja <b>soma</b> seja <b>pelo menos o custo</b> dela.`,
           pay: `Agora clique na <b>porta</b> para pagar com as cartas escolhidas.<br><span class="muted">Soma <b>exata</b> compra +1 carta de graça. Soma maior só abre.</span>`,
         },
@@ -100,15 +96,14 @@
           {
             id: 'exit-stairs',
             trigger: 'any',
-            pulse: 'hand', // a mão pulsa até uma carta ser escolhida
             compact: true, // a escada fica logo abaixo do texto: letra menor para não cobrir a setinha
-            focus: ['exit', 'hand'],
-            lines: ['Para escapar desse andar, vá até a escada.', 'Use uma carta de movimento com valor apropriado e clique na casa da escada.'],
+            focus: ['exit'],
+            lines: ['Para escapar desse andar, vá até a escada.', 'Toque na casa da escada.'],
           },
         ],
         title: 'A escada',
         body: {
-          default: `Para escapar desse andar, vá até a <b>escada ▼</b>. Escolha uma carta de movimento com valor suficiente e clique na casa da escada.`,
+          default: `Para escapar desse andar, vá até a <b>escada ▼</b>: toque na casa dela.`,
         },
         done: { default: `<b>Andar 2!</b>` },
       },
@@ -145,7 +140,7 @@
         scenes: [
           {
             focus: 'hand',
-            lines: ['Ouros ♦ dobram o alcance ao andar. Um 4♦ anda 8 casas.', 'Paus ♣ são coringas: valem o próprio número ou copiam o de outra carta.'],
+            lines: ['Ouros ♦ são mana: descarte um ♦ e ganhe mana igual ao número dele. A mana paga o uso dos anéis.', 'Paus ♣ são coringas: valem o próprio número ou copiam o de outra carta.'],
           },
         ],
       },
@@ -163,7 +158,7 @@
         id: 'fight',
         kind: 'coach',
         wait: 'win', // nunca é "concluído": chegar na escada vence o treino e abre a janela de fim
-        // RASCUNHO dos textos. A escada tem um inimigo ao lado: entrar na zona vermelha abre o combate (janela com a dica).
+        // O inimigo dorme ao lado da escada: chegar perto o acorda (no treino sempre acorda) e ele ataca.
         spots: [
           {
             id: 'fight-clear',
@@ -176,11 +171,11 @@
             trigger: 'any',
             pulse: 'hand',
             focus: ['enemy', 'hand'],
-            lines: ['Um inimigo guarda a escada. A zona vermelha é o alcance dele.', 'Use uma carta para entrar nela e começar o combate.'],
+            lines: ['Um inimigo dorme ao lado da escada. A zona vermelha é onde ele pode acordar.', 'Chegue perto: ele acorda e vem atrás de você. Ou toque nele para atacar.'],
           },
         ],
         title: 'Inimigo',
-        body: { default: `Um <b>inimigo</b> guarda a escada. Entre na <b>zona vermelha</b> com uma carta de movimento para lutar.` },
+        body: { default: `Um <b>inimigo</b> dorme ao lado da escada. Chegue na <b>zona vermelha</b> para acordá-lo, ou toque nele para atacar.` },
         done: { default: `<b>Você venceu!</b>` },
       },
     ],
@@ -196,7 +191,7 @@
           <ul>
             <li><b>♥ Copas:</b> compra até N cartas (a mão vai até 7).</li>
             <li><b>♠ Espadas:</b> em combate vale o dobro e derruba várias cartas do inimigo.</li>
-            <li><b>♦ Ouros:</b> ao andar, o número vale em <b>dobro</b>.</li>
+            <li><b>♦ Ouros:</b> <b>mana</b>: vira mana igual ao número, que paga o uso dos anéis.</li>
             <li><b>♣ Paus:</b> <b>coringa</b>. Vale o próprio número ou copia o de outra carta da mão.</li>
           </ul>
           <p class="muted">Escolha a carta e use o botão <b>Poder</b> que aparece ao lado esquerdo da mão.</p>`,
@@ -217,14 +212,14 @@
 
     // Dicas de uma vez só: aparecem num cartão ao lado quando a situação acontece.
     hints: {
-      start: { title: 'Sua vez', body: 'Escolha <b>1 carta</b> da mão e clique numa <b>casa dourada</b> para andar.' },
+      start: { title: 'Sua vez', body: 'Toque numa casa do mapa para andar: <b>andar é de graça</b>, mas cada passo é um turno.' },
       door: {
         title: 'Uma porta!',
         body: 'Escolha cartas da mão cuja <b>soma</b> seja pelo menos o custo da porta e clique nela. Soma <b>exata</b> compra +1 carta.',
       },
       zone: {
         title: 'Zona vermelha',
-        body: 'Um <b>inimigo</b> guarda esta sala. Se o seu caminho entrar na zona vermelha, o movimento é cortado e começa um <b>combate</b>. Dá para contornar, mas algumas zonas trancam a sala inteira.',
+        body: 'Um <b>inimigo</b> dorme nesta sala. Terminar um turno na zona vermelha pode <b>acordá-lo</b>; acordado, ele anda atrás de você e, quando encosta, começa um <b>combate</b>. Dá para passar de longe, ou tocar nele para atacar.',
       },
       scroll: {
         title: 'Pergaminho de Inventário',
@@ -245,9 +240,9 @@
     lossHints: {
       handOut: 'Lembre-se de usar cartas de copas ♥ para repor sua mão!',
       deckOut: 'Seu deck zerou! Carta usada não volta: gaste com cuidado e procure comida (Maçã e Bife) pela masmorra.',
-      flee: 'Fugir custa uma carta. Com a mão curta, vale mais contornar a zona vermelha ou lutar pela soma exata.',
+      flee: 'Fugir custa uma carta. Com a mão curta, vale mais não acordar o inimigo ou lutar pela soma exata.',
       combat: 'Em combate, use espadas ♠: elas valem o dobro e uma só pode derrubar várias cartas do inimigo. A soma exata compra 1 carta!',
-      fallback: 'Cada passo custa uma carta. Planeje o caminho e gaste as cartas com cuidado.',
+      fallback: 'Carta usada não volta. Explore com calma (andar é de graça), mas gaste as cartas com cuidado.',
     },
 
     notice: 'O Deck Crawly é melhor no <b>computador ou tablet</b>. Em telas pequenas as cartas ficam apertadas.',
@@ -428,6 +423,7 @@
       this.startedAt = now;
       this.moves = 0;
       this.stepsWalked = 0;
+      this.woke = 0;
       this.doors = 0;
       this.chests = 0;
       this.exact = 0;
@@ -457,7 +453,9 @@
         case 'move':
           this.moves++;
           this.stepsWalked += data.steps || 0;
-          if (data.suit === 'D') this.powers.D++; // andar com ♦ é o poder do ♦
+          break;
+        case 'wake':
+          this.woke += data.count || 0;
           break;
         case 'open':
           if (data.kind === 'chest') this.chests++;
@@ -539,20 +537,23 @@
       `Cartas no fim: deck ${game.playerDeck.length} · mão ${game.hand.length} · guardadas ${game.stash.length} · descarte ${game.discard.length}`,
     );
     lines.push(
-      `Cartas gastas: ${game.discard.length} no descarte (${stats.moves} movimentos de ${stats.stepsWalked} casas, ${stats.doors} portas, ${stats.chests} baús)`,
+      `Cartas gastas: ${game.discard.length} no descarte (${stats.doors} portas, ${stats.chests} baús)`,
     );
+    const byFloor = Object.entries(game.turnsByFloor || {}).map(([n, t]) => `${n}: ${t}`).join(' · ');
+    lines.push(`Turnos: ${game.turn} (por andar ${byFloor || '-'}) · ${game.steps || 0} passos · inimigos que acordaram: ${stats.woke}`);
     lines.push(`Somas exatas: ${stats.exact}`);
     lines.push(`Combates: ${stats.combats} (${stats.victories} vitórias, ${stats.flees} fugas, ${stats.attacks} ataques)`);
-    lines.push(`Poderes: ♥ ${p.H} (comprou cartas) · ♦ ${p.D} (andou o dobro) · ♣ ${p.C} (coringa)`);
+    lines.push(`Poderes: ♥ ${p.H} (comprou cartas) · ♦ ${p.D} (virou mana) · ♣ ${p.C} (coringa)`);
+    lines.push(`Mana: ganhou ${game.manaGained} · gastou ${game.manaSpent} · perdeu ${game.manaWasted} (teto cheio) · no fim ${game.mana}/${game.manaMax()}`);
     if (game.spent) {
       const sp = game.spent;
       lines.push(
-        `Cartas gastas por tipo: andar ${sp.move} · portas e baús ${sp.open} · combate ${sp.attack} · poder do ♥ ${sp.power} · fuga ${sp.flee} · dardos ${sp.trap}`,
+        `Cartas gastas por tipo: portas e baús ${sp.open} · combate ${sp.attack} · poder (♥ e ♦) ${sp.power} · fuga ${sp.flee} · dardos ${sp.trap}`,
       );
-      lines.push(`♠ gastos: ${sp.spadeAttack} em combate (valem o dobro) · ${sp.spadeOther} fora do combate (andar, portas, fuga: o dobro se perde)`);
+      lines.push(`♠ gastos: ${sp.spadeAttack} em combate (valem o dobro) · ${sp.spadeOther} fora do combate (portas, poder, fuga: o dobro se perde)`);
     }
     lines.push(`Pergaminhos de Inventário: ${stats.scrolls} · cartas guardadas ${stats.stashes} vezes`);
-    lines.push(`Anéis: ${stats.ringsFound} achados, ${stats.ringsWorn} vestidos · no dedo no fim: ${game.rings.filter(Boolean).map((r) => DC.ROGUE.RINGS[r.ring].name).join(', ') || 'nenhum'} · usos de anel de naipe: ${stats.ringUses} · cartas do Anel da Comida: ${stats.ringFoodCards}`);
+    lines.push(`Anéis: ${stats.ringsFound} achados, ${stats.ringsWorn} vestidos · no dedo no fim: ${game.rings.filter(Boolean).map((r) => DC.ROGUE.RINGS[r.ring].name).join(', ') || 'nenhum'} · usos de anel: ${stats.ringUses} · cartas do Anel da Comida: ${stats.ringFoodCards}`);
     lines.push(`Armadilhas: ${stats.traps.dart} de dardo · ${stats.traps.back} de queda`);
     lines.push(`Comida: ${stats.reinforces} (${stats.reinforces - stats.steaks} maçãs, ${stats.steaks} bifes · ${stats.reinforceCards} cartas novas no deck)`);
     lines.push(`Deck no fim, por naipe: ${['S', 'H', 'D', 'C'].map((suit) => `${DC.SUIT_SYMBOL[suit]} ${game.playerDeck.filter((c) => c.suit === suit).length + game.hand.filter((c) => c.suit === suit).length}`).join(' · ')} (deck + mão)`);

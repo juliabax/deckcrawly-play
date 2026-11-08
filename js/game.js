@@ -57,6 +57,14 @@
     ringChestFree: 0.25,
     ringEnemyBase: 0.04,
     ringEnemyPerPoint: 0.006,
+    // Experimento Turnos (como no Rogue): andar é de graça, cada passo é um turno e os inimigos agem depois dele.
+    wakeChance: 0.67, // chance de um inimigo grande acordar quando você termina um turno na zona dele (no Rogue, 2/3)
+    wakeChanceSmall: 0.33, // a de um rato (dorme mais fundo)
+    fleeStun: 2, // turnos que o inimigo fica parado depois que você foge dele
+    hasteTurns: 8, // Poção de velocidade: turnos em que os inimigos ficam parados
+    // ♦ é mana: descartar um ♦ pelo poder dá mana igual ao número dele (até o teto). Os anéis gastam mana.
+    manaMax: 10,
+    ringUseMana: 2,
   };
 
   // Mão e custo da porta do andar de treino (ids do deck: p = jogador, d = dungeon).
@@ -100,7 +108,7 @@
       this.itemCount = 0;
       this.identified = new Set();
       this.mapped = new Set(); // andares revelados por um pergaminho de mapa
-      this.freeMove = false; // poção de velocidade: o próximo movimento não gasta carta
+      this.hasteTurns = 0; // Poção de velocidade: quantos turnos os inimigos ainda ficam parados
       this.looks = {};
       for (const kind of Object.keys(DC.ROGUE.LOOKS)) {
         const keys = Object.keys(DC.ROGUE.ITEMS).filter((k) => DC.ROGUE.ITEMS[k].kind === kind);
@@ -121,8 +129,17 @@
       this.chestRng = DC.makeRng(`${this.seed}:chests`); // quais baús são destrancados (grátis)
       this.ringCount = 0;
       // Para onde as cartas vão (só para o relatório): andar, portas e baús, combate, fuga, poder do ♥, armadilhas.
-      this.spent = { move: 0, open: 0, attack: 0, flee: 0, power: 0, trap: 0, spadeAttack: 0, spadeOther: 0 };
-      this.rings = Array(this.config.ringSlots).fill(null); // anéis no dedo: { id, ring, charged }
+      this.spent = { open: 0, attack: 0, flee: 0, power: 0, trap: 0, spadeAttack: 0, spadeOther: 0 };
+      this.rings = Array(this.config.ringSlots).fill(null); // anéis no dedo: { id, ring }
+      // Turnos e mana (experimento Turnos): cada passo e cada porta aberta é 1 turno.
+      this.turn = 0;
+      this.steps = 0; // passos dados (só para o relatório)
+      this.turnsByFloor = {};
+      this.mana = 0;
+      this.manaGained = 0;
+      this.manaSpent = 0;
+      this.manaWasted = 0;
+      this.wakeRng = DC.makeRng(`${this.seed}:wake`); // quem acorda a cada turno
       this.seenRooms = {}; // salas visitadas de cada andar (ao voltar de uma armadilha, o mapa continua aberto)
       this.arrived = new Set(); // andares já alcançados (só a primeira chegada dá cartas)
 
@@ -205,6 +222,13 @@
       this.planChests();
       this.planRings();
       this.planRats();
+      // Todo inimigo começa dormindo e parado (acorda quando você chega perto, como no Rogue).
+      for (const floor of this.floors) {
+        for (const enemy of floor.enemies) {
+          enemy.awake = false;
+          enemy.stun = 0;
+        }
+      }
     }
 
     // Acrescenta os ratos (inimigos pequenos de 1 carta) depois de tudo, com sorteio à parte: a masmorra de cada
@@ -428,7 +452,6 @@
       this.player = { x: this.floor.start.x, y: this.floor.start.y };
       const first = !this.arrived.has(n);
       this.arrived.add(n);
-      if (first) for (const r of this.rings) if (r) r.charged = true; // os anéis de naipe recarregam a cada andar novo
       this.visited = this.seenRooms[n] || new Set([this.floor.grid[this.player.y][this.player.x].room]);
       this.seenRooms[n] = this.visited;
       if (!first) {
@@ -483,12 +506,6 @@
       return Boolean(enemy) && enemy.ability === 'rust';
     }
 
-    // ♦ dobra o número ao andar.
-    walkRange(card) {
-      const value = this.cardValue(card);
-      return (card.suit === 'D' ? value * 2 : value) + this.ringBonus('walk');
-    }
-
     // Em combate, ♠ vale o dobro (depois da Ferrugem tirar 1). Fora dele vale só o número.
     attackValue(card) {
       const value = this.cardValue(card);
@@ -498,13 +515,37 @@
     // A soma de uma jogada de combate inclui o bônus do Anel do Guerreiro.
     attackSum(ids) {
       const cards = this.handCards(ids);
-      return cards && cards.length ? cards.reduce((sum, c) => sum + this.attackValue(c), 0) + this.ringBonus('fight') : 0;
+      return cards && cards.length ? cards.reduce((sum, c) => sum + this.attackValue(c) + this.boostOf(c, 'fight'), 0) : 0;
     }
 
-    // A soma para pagar portas e baús inclui o bônus do Anel da Chave.
+    // A soma para pagar portas e baús inclui o +2 que um Anel da Chave pôs em cada carta.
     payTotal(ids) {
       const cards = this.handCards(ids);
-      return cards && cards.length ? cards.reduce((sum, c) => sum + this.cardValue(c), 0) + this.ringBonus('pay') : 0;
+      return cards && cards.length ? cards.reduce((sum, c) => sum + this.cardValue(c) + this.boostOf(c, 'pay'), 0) : 0;
+    }
+
+    // Bônus que um anel pôs numa carta específica ('pay' vale ao pagar, 'fight' vale em combate).
+    boostOf(card, kind) {
+      return (card.boost && card.boost[kind]) || 0;
+    }
+
+    // ---------- mana (♦) ----------
+
+    manaMax() {
+      return this.config.manaMax + this.ringBonus('mana');
+    }
+
+    gainMana(amount) {
+      const gained = Math.min(amount, this.manaMax() - this.mana);
+      this.mana += gained;
+      this.manaGained += gained;
+      this.manaWasted += amount - gained;
+      return gained;
+    }
+
+    spendMana(amount) {
+      this.mana -= amount;
+      this.manaSpent += amount;
     }
 
     // ---------- anéis ----------
@@ -521,21 +562,30 @@
       return this.config.handMax + this.ringBonus('hand');
     }
 
-    // Anel de naipe: uma vez por andar, a carta escolhida da mão vira do naipe do anel (até ser usada).
+    // Usar um anel gasta mana (config.ringUseMana). Anel de naipe: a carta escolhida vira daquele naipe até ser usada.
+    // Anel de número (Chave, Guerreiro): a carta escolhida ganha +2 (ao pagar portas e baús, ou em combate) até ser usada;
+    // uma carta só recebe esse bônus uma vez. Os outros anéis valem sozinhos, sem gastar nada.
     useRing(slot, cardId) {
       if (!this.canAct() && !this.canFight()) return fail('Não dá para usar o anel agora.');
       const ring = this.rings[slot];
       const def = ring && DC.ROGUE.RINGS[ring.ring];
-      if (!def || !def.suit) return fail('Esse anel não precisa ser usado: ele vale enquanto está no dedo.');
-      if (!ring.charged) return fail('O anel já foi usado neste andar: ele recarrega no próximo.');
+      if (!def || (!def.suit && !def.use)) return fail('Esse anel não precisa ser usado: ele vale enquanto está no dedo.');
+      const cost = this.config.ringUseMana;
+      if (this.mana < cost) return fail(`Falta mana: o anel custa ${cost} e você tem ${this.mana}. Descarte um ♦ para ganhar mana.`);
       const card = this.hand.find((c) => c.id === cardId);
       if (!card) return fail('Escolha 1 carta da mão para o anel.');
-      if (card.suit === def.suit) return fail(`Essa carta já é de ${DC.SUIT_SYMBOL[def.suit]}.`);
-      const old = DC.SUIT_SYMBOL[card.suit];
-      card.suit = def.suit;
-      delete this.jokerCopy[card.id];
-      ring.charged = false;
-      this.log(`${def.name}: ${DC.rankLabel(card.rank)}${old} vira ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[def.suit]}.`, 'good');
+      if (def.suit) {
+        if (card.suit === def.suit) return fail(`Essa carta já é de ${DC.SUIT_SYMBOL[def.suit]}.`);
+        const old = DC.SUIT_SYMBOL[card.suit];
+        card.suit = def.suit;
+        delete this.jokerCopy[card.id];
+        this.log(`${def.name}: ${DC.rankLabel(card.rank)}${old} vira ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[def.suit]}.`, 'good');
+      } else {
+        if (this.boostOf(card, def.use)) return fail('Essa carta já recebeu o bônus desse anel.');
+        card.boost = Object.assign({}, card.boost, { [def.use]: def.amount });
+        this.log(`${def.name}: ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[card.suit]} ganha +${def.amount} ${def.use === 'pay' ? 'ao pagar portas e baús' : 'em combate'}.`, 'good');
+      }
+      this.spendMana(cost);
       this.afterAction();
       return { ok: true, card };
     }
@@ -550,7 +600,7 @@
       } else {
         if (!Number.isInteger(slot) || slot < 0 || slot >= this.rings.length) return fail('Esse espaço de anel não existe.');
         replaced = this.rings[slot];
-        this.rings[slot] = { id: `a${++this.ringCount}`, ring: this.pending.ring, charged: true };
+        this.rings[slot] = { id: `a${++this.ringCount}`, ring: this.pending.ring };
         this.log(`Você veste ${def.name}.${replaced ? ` ${DC.ROGUE.RINGS[replaced.ring].name} fica para trás.` : ''}`, 'good');
       }
       this.pending = null;
@@ -634,7 +684,14 @@
       this.pruneJokers();
       this.startReinforce();
       if (this.status !== 'playing' || (this.pending && this.pending.type !== 'combat')) return;
-      if (!this.hasAnyAction()) {
+      // Mão vazia (ou só com a carta congelada) mas ainda há cartas no deck: compra 1 de graça, para a derrota não vir
+      // de uma mão zerada com o deck ainda cheio.
+      if (!this.hasAnyAction() && this.playerDeck.length) {
+        const drawn = this.draw(1);
+        if (drawn) this.log('Sua mão acabou: você compra 1 carta do deck.', 'good');
+      }
+      // Sem cartas dá para continuar só se não está em combate e a escada de saída está ao alcance (sem portas fechadas).
+      if (!this.hasAnyAction() && (this.inCombat() || !this.exitReachable())) {
         this.status = 'lost';
         // Como acabou, para a dica da tela de derrota: em combate, fugindo com a última carta ou simplesmente sem cartas.
         this.lostBy = this.pending && this.pending.type === 'combat' ? 'combat' : this.fled ? 'flee' : 'empty';
@@ -642,85 +699,172 @@
       }
     }
 
-    // ---------- andar ----------
-
-    reachFor(cardId) {
-      const card = this.hand.find((c) => c.id === cardId);
-      if (!card) return null;
-      return DC.reach(this.floor, this.player, this.walkRange(card));
+    // A escada de saída pode ser alcançada andando, sem abrir porta nem baú nem atravessar inimigo?
+    exitReachable() {
+      const f = this.floor;
+      const found = DC.reach(f, this.player, Infinity, (x, y) => Boolean(DC.enemyHere(f, x, y)));
+      return found.has(f.exit.y * f.w + f.exit.x);
     }
 
-    // Corta o caminho no primeiro passo dentro da zona de ataque de um inimigo vivo.
-    // Devolve o caminho que será andado e o inimigo que interrompe (ou null).
-    cutPath(path) {
-      for (let i = 1; i < path.length; i++) {
-        const enemy = DC.enemyAt(this.floor, path[i].x, path[i].y);
-        if (enemy) return { path: path.slice(0, i + 1), enemy };
-      }
-      return { path, enemy: null };
+    // ---------- andar (por turnos, como no Rogue) ----------
+    //
+    // Andar é de graça: cada passo (uma casa, na vertical ou na horizontal) é um turno, e depois dele os inimigos
+    // agem. Abrir uma porta ou um baú também passa um turno. Os inimigos começam dormindo; terminar um turno na
+    // zona de um deles pode acordá-lo (config.wakeChance), e um inimigo acordado anda uma casa por turno atrás de
+    // você, dentro da sala dele. Quando ele encosta em você, começa o combate.
+
+    // Caminho (lista de casas, a primeira é onde você está) até x,y, desviando dos inimigos. Se a casa final é de um
+    // inimigo, o último passo é o ataque a ele.
+    pathFor(x, y) {
+      const f = this.floor;
+      const target = DC.enemyHere(f, x, y);
+      const blocked = (bx, by) => {
+        const e = DC.enemyHere(f, bx, by);
+        return Boolean(e) && e !== target;
+      };
+      const found = DC.reach(f, this.player, Infinity, blocked);
+      const node = found.get(y * f.w + x);
+      if (!node || node.dist < 1) return null;
+      return DC.pathTo(f, found, x, y);
     }
 
-    walk(cardId, x, y) {
+    // Há um inimigo acordado na sala (ou na porta ao lado dela)? Aí andar vira passo a passo.
+    chasers() {
+      const f = this.floor;
+      const room = f.grid[this.player.y][this.player.x].room;
+      return f.enemies.filter((e) => !e.dead && e.awake && (room === null || e.room === room || Math.abs(e.x - this.player.x) + Math.abs(e.y - this.player.y) <= 2));
+    }
+
+    // Um passo ou um ataque: x,y é uma casa ao lado. Devolve o que aconteceu neste turno.
+    step(x, y) {
       if (!this.canAct()) return fail('Não dá para andar agora.');
-      const card = this.hand.find((c) => c.id === cardId);
-      if (!card) return fail('Essa carta não está na mão.');
-      const range = this.walkRange(card);
-      if (range < 1) return fail('Essa carta não permite andar.');
-      const found = DC.reach(this.floor, this.player, range);
-      const node = found.get(y * this.floor.w + x);
-      if (!node || node.dist < 1) return fail('Fora de alcance.');
-
-      let { path, enemy } = this.cutPath(DC.pathTo(this.floor, found, x, y));
-      // Uma armadilha escondida no caminho para quem anda ali: o movimento termina na casa dela.
-      const trapAt = path.findIndex((c, i) => i > 0 && (this.floor.traps || []).some((t) => !t.sprung && t.x === c.x && t.y === c.y));
-      let trap = null;
-      if (trapAt > 0) {
-        trap = this.floor.traps.find((t) => !t.sprung && t.x === path[trapAt].x && t.y === path[trapAt].y);
-        path = path.slice(0, trapAt + 1);
-        enemy = null;
-      }
-      const end = path[path.length - 1];
-      const floorBefore = this.floor;
-      if (this.freeMove) {
-        // Poção de velocidade: a carta continua na mão.
-        this.freeMove = false;
-        this.log('Poção de velocidade: esse movimento não gastou carta.', 'good');
-      } else {
-        this.hand = this.hand.filter((c) => c !== card);
-        this.discard.push(card);
-        this.spent.move++;
-        if (card.suit === 'S') this.spent.spadeOther++;
-      }
-      this.player = { x: end.x, y: end.y };
-      const picked = this.collectPickups(path);
-
-      this.log(`Anda ${path.length - 1} casa(s) usando ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[card.suit]}.`);
-      if (trap) {
-        const sprung = this.springTrap(trap);
+      const f = this.floor;
+      const from = { x: this.player.x, y: this.player.y };
+      if (Math.abs(x - from.x) + Math.abs(y - from.y) !== 1) return fail('Só dá para andar uma casa por vez.');
+      const floorBefore = f;
+      const foe = DC.enemyHere(f, x, y);
+      if (foe) {
+        // Andar contra um inimigo (dormindo ou não) é atacá-lo.
+        this.engage(foe);
         this.afterAction();
-        return { ok: true, path, floorBefore, descended: false, combat: false, picked, trap: sprung };
+        return { ok: true, moved: false, from, to: from, floorBefore, picked: [], trap: null, descended: false, combat: true, woke: [], enemyId: foe.id };
       }
+      const cell = DC.cellAt(f, x, y);
+      const walkable = cell && (['floor', 'start', 'exit'].includes(cell.type) || (cell.type === 'door' && f.doors[cell.ref].open));
+      if (!walkable) return fail('Tem uma parede ou algo fechado aí.');
 
-      if (enemy) {
-        this.pending = { type: 'combat', enemyId: enemy.id, from: { x: path[path.length - 2].x, y: path[path.length - 2].y } };
-        this.log('Um inimigo! O movimento é cortado e o combate começa.', 'bad');
-        this.startCombatEffects(enemy);
-        this.afterAction();
-        return { ok: true, path, floorBefore, descended: false, combat: true, picked };
-      }
+      this.player = { x, y };
+      const result = { ok: true, moved: true, from, to: { x, y }, floorBefore, picked: this.collectPickups([from, { x, y }]), trap: null, descended: false, combat: false, woke: [], moved_enemies: [] };
+      this.steps++;
 
-      let descended = false;
-      if (this.floor.grid[y][x].type === 'exit') {
-        descended = true;
-        if (this.floorNo >= this.config.floors) {
-          this.status = 'won';
-          this.log('Você escapou da masmorra!', 'good');
+      const trap = (f.traps || []).find((t) => !t.sprung && t.x === x && t.y === y);
+      if (trap) result.trap = this.springTrap(trap);
+
+      if (!result.trap || !result.trap.floorChanged) {
+        if (cell.type === 'exit') {
+          result.descended = true;
+          if (this.floorNo >= this.config.floors) {
+            this.status = 'won';
+            this.log('Você escapou da masmorra!', 'good');
+          } else {
+            this.startFloor(this.floorNo + 1);
+          }
         } else {
-          this.startFloor(this.floorNo + 1);
+          this.passTurn(result);
         }
       }
       this.afterAction();
-      return { ok: true, path, floorBefore, descended, combat: false, picked };
+      return result;
+    }
+
+    // Passa um turno: os inimigos dormindo na zona podem acordar, os acordados andam atrás de você e, se encostam,
+    // o combate começa. Não faz nada enquanto uma janela está aberta.
+    passTurn(result = {}) {
+      this.turn++;
+      this.turnsByFloor[this.floorNo] = (this.turnsByFloor[this.floorNo] || 0) + 1;
+      if (this.status !== 'playing' || this.pending) return result;
+      const f = this.floor;
+      const hero = this.player;
+      const heroCell = DC.cellAt(f, hero.x, hero.y);
+      result.woke = result.woke || [];
+      result.moved_enemies = result.moved_enemies || [];
+
+      for (const e of f.enemies) {
+        if (!DC.inWakeZone(e, heroCell, hero.x, hero.y)) continue;
+        const chance = e.wake !== undefined ? e.wake : e.small ? this.config.wakeChanceSmall : this.config.wakeChance;
+        if (this.wakeRng.next() < chance) {
+          e.awake = true;
+          result.woke.push(e.id);
+          this.log(e.small ? 'Um rato acorda e corre atrás de você!' : 'Um inimigo acorda e vem atrás de você!', 'bad');
+        }
+      }
+
+      if (this.hasteTurns > 0) {
+        this.hasteTurns--;
+        return result;
+      }
+      for (const e of f.enemies) {
+        if (e.dead || !e.awake || result.woke.includes(e.id)) continue;
+        if (e.stun > 0) {
+          e.stun--;
+          continue;
+        }
+        const dist = () => Math.abs(e.x - hero.x) + Math.abs(e.y - hero.y);
+        if (dist() > 1) {
+          const next = DC.chaseStep(f, e, hero);
+          if (next) {
+            e.x = next.x;
+            e.y = next.y;
+            result.moved_enemies.push(e.id);
+          }
+        }
+        if (dist() === 1) {
+          this.engage(e);
+          result.combat = true;
+          result.enemyId = e.id;
+          break;
+        }
+      }
+      return result;
+    }
+
+    // Começa o combate com um inimigo (que, lutando, já está acordado).
+    engage(enemy) {
+      enemy.awake = true;
+      this.pending = { type: 'combat', enemyId: enemy.id };
+      this.log('Combate! O inimigo está em cima de você.', 'bad');
+      this.startCombatEffects(enemy);
+    }
+
+    // A caminhada automática deve parar? Quando algo muda: combate, armadilha, comida achada, descida, um inimigo
+    // acordando ou perseguindo você, ou uma janela aberta.
+    stopWalking(result) {
+      return Boolean(result.combat || result.trap || result.descended || (result.picked && result.picked.length) || (result.woke && result.woke.length) || this.pending || this.status !== 'playing' || this.chasers().length);
+    }
+
+    // Anda até x,y passo a passo, parando quando algo muda (para os testes e atalhos; a tela anima cada passo).
+    walkTo(x, y) {
+      const path = this.pathFor(x, y);
+      if (!path) return fail('Sem caminho até lá.');
+      const out = { ok: true, steps: 0, path: [path[0]], floorBefore: this.floor, picked: [], trap: null, descended: false, combat: false, woke: [] };
+      for (const cell of path.slice(1)) {
+        const r = this.step(cell.x, cell.y);
+        if (!r.ok) {
+          if (!out.steps && !out.combat) return r;
+          break;
+        }
+        if (r.moved) {
+          out.steps++;
+          out.path.push(cell);
+        }
+        out.picked.push(...r.picked);
+        out.woke.push(...r.woke);
+        out.trap = out.trap || r.trap;
+        out.descended = out.descended || r.descended;
+        out.combat = out.combat || r.combat;
+        if (this.stopWalking(r)) break;
+      }
+      return out;
     }
 
     // ---------- névoa ----------
@@ -831,8 +975,9 @@
           this.log('O baú mostra algumas cartas do seu deck. Escolha até 2.', 'good');
         }
       }
+      const turn = this.passTurn({});
       this.afterAction();
-      return { ok: true, exact, drawn, kind: target.kind, scroll, ringCards };
+      return { ok: true, exact, drawn, kind: target.kind, scroll, ringCards, combat: Boolean(turn.combat), woke: turn.woke || [] };
     }
 
     resolveChest(pickIds, discardIds) {
@@ -876,6 +1021,18 @@
         this.log(`${symbol}: compra ${drawn} carta(s).`, 'good');
         this.afterAction();
         return { ok: true, count: drawn };
+      }
+
+      if (card.suit === 'D') {
+        if (this.mana >= this.manaMax()) return fail('Sua mana já está cheia.');
+        this.hand = this.hand.filter((c) => c !== card);
+        this.discard.push(card);
+        this.spent.power++;
+        const value = this.cardValue(card);
+        const gained = this.gainMana(value);
+        this.log(`${symbol}: vira ${gained} de mana${gained < value ? ` (o teto é ${this.manaMax()}, sobraram ${value - gained})` : ''}.`, 'good');
+        this.afterAction();
+        return { ok: true, count: gained, mana: this.mana };
       }
 
       return fail('Esse naipe não tem um poder para ativar à parte.');
@@ -956,20 +1113,22 @@
       return { ok: true, exact, drawn, victory, reward, scroll, revealed, enemyId: enemy.id, cardId: targets[0].id, cardIds: targets.map((t) => t.id), reinforce: victory ? enemy.reinforce || false : false };
     }
 
-    // Foge do combate descartando 1 carta da mão (a escolhida). Volta para a casa de
-    // onde veio; o inimigo continua lá, com as cartas já derrotadas ainda derrotadas.
-    // Se era a última carta da mão, o jogo termina (sem cartas, sem ações).
+    // Foge do combate descartando 1 carta da mão (a escolhida). Você fica onde está, e o inimigo ficar parado por
+    // alguns turnos (config.fleeStun): dá tempo de se afastar. As cartas dele já derrotadas continuam derrotadas.
+    // Se era a última carta da mão e não há como seguir, o jogo termina.
     flee(cardId) {
       if (!this.canFight()) return fail('Não há combate agora.');
       const card = this.hand.find((c) => c.id === cardId);
       if (!card) return fail('Escolha a carta que você descarta para fugir.');
+      const enemy = this.combatEnemy();
       this.hand = this.hand.filter((c) => c !== card);
       this.discard.push(card);
       this.spent.flee++;
       if (card.suit === 'S') this.spent.spadeOther++;
-      this.player = { x: this.pending.from.x, y: this.pending.from.y };
+      enemy.awake = true;
+      enemy.stun = this.config.fleeStun;
       this.pending = null;
-      this.log(`Você foge descartando ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[card.suit]}.`);
+      this.log(`Você foge descartando ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[card.suit]}. O inimigo fica parado por ${enemy.stun} turnos.`);
       this.fled = true;
       this.afterAction();
       this.fled = false;
@@ -1028,8 +1187,8 @@
       let text;
       switch (key) {
         case 'haste':
-          this.freeMove = true;
-          text = 'O seu próximo movimento não gasta carta.';
+          this.hasteTurns = this.config.hasteTurns;
+          text = `Você fica rápido: os inimigos ficam parados pelos próximos ${this.config.hasteTurns} turnos.`;
           break;
         case 'poison': {
           const lost = this.playerDeck.splice(Math.max(0, this.playerDeck.length - 2), 2);
@@ -1047,7 +1206,7 @@
             for (let x = 0; x < this.floor.w; x++) {
               const cell = this.floor.grid[y][x];
               if (!['floor', 'start'].includes(cell.type) || !this.visited.has(cell.room)) continue;
-              if ((x === this.player.x && y === this.player.y) || DC.enemyAt(this.floor, x, y)) continue;
+              if ((x === this.player.x && y === this.player.y) || this.nearEnemy(this.floor, x, y)) continue;
               cells.push({ x, y });
             }
           }
@@ -1065,6 +1224,11 @@
       this.log(`${first ? 'Você descobre: ' : ''}${DC.ROGUE.itemName(this, key)}. ${text}`, 'good');
       this.afterAction();
       return { ok: true, key, text, discovered: first, name };
+    }
+
+    // Tem um inimigo vivo nesta casa ou numa casa ao lado? (teleporte e queda não deixam você aparecer assim)
+    nearEnemy(floor, x, y) {
+      return (floor.enemies || []).some((e) => !e.dead && Math.abs(e.x - x) + Math.abs(e.y - y) <= 1);
     }
 
     // ---------- armadilhas (experimento Baralho Finito) ----------
@@ -1090,7 +1254,7 @@
       const spots = [];
       for (let y = 0; y < floor.h; y++) {
         for (let x = 0; x < floor.w; x++) {
-          if (floor.grid[y][x].type !== 'floor' || !this.visited.has(floor.grid[y][x].room) || DC.enemyAt(floor, x, y)) continue;
+          if (floor.grid[y][x].type !== 'floor' || !this.visited.has(floor.grid[y][x].room) || this.nearEnemy(floor, x, y)) continue;
           spots.push({ x, y, d: Math.abs(x - floor.exit.x) + Math.abs(y - floor.exit.y) });
         }
       }

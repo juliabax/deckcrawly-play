@@ -16,7 +16,7 @@
   };
 
   const ITEMS = {
-    haste: { kind: 'potion', name: 'velocidade', text: 'O seu próximo movimento não gasta carta.' },
+    haste: { kind: 'potion', name: 'velocidade', text: 'Você fica rápido: os inimigos ficam parados por 8 turnos.' },
     poison: { kind: 'potion', name: 'veneno', text: 'As 2 cartas de cima do seu deck vão para o descarte.' },
     map: { kind: 'scroll', name: 'mapa mágico', text: 'Mostra o andar inteiro, sem névoa.' },
     teleport: { kind: 'scroll', name: 'teleporte', text: 'Leva você para um ponto sorteado de uma sala já visitada.' },
@@ -31,12 +31,16 @@
   const ICON = { potion: '🧪', scroll: '📜' };
 
   // Anéis (experimento Baralho Finito): equipamento que fica no dedo (2 espaços) e modifica as cartas.
-  // `stat`/`amount`: bônus fixo enquanto o anel está no dedo. Anéis de naipe (`suit`) têm 1 uso por andar:
-  // escolha 1 carta da mão e ela vira daquele naipe até ser usada. `weight` é a raridade no sorteio.
+  // Passivos (`stat`/`amount`): valem enquanto estão no dedo, sem gastar nada. Ativos gastam MANA (♦) a cada uso:
+  //  - de número (`use`/`amount`): uma carta da mão escolhida ganha +amount ao pagar portas e baús ('pay') ou em combate
+  //    ('fight') até ser usada (uma carta recebe o bônus uma vez só). Assim o +2 não vale para todas as cartas
+  //    sempre, o que estragaria a soma exata, e é você quem escolhe quando pagar;
+  //  - de naipe (`suit`): a carta escolhida vira daquele naipe até ser usada.
+  // `weight` é a raridade no sorteio.
   const RINGS = {
-    walker: { name: 'Anel do Caminhante', short: 'Caminhante', text: '+2 de alcance ao andar.', stat: 'walk', amount: 2, weight: 2, color: '#4da3ff' },
-    key: { name: 'Anel da Chave', short: 'Chave', text: '+2 na soma ao pagar portas e baús.', stat: 'pay', amount: 2, weight: 2, color: '#e7b84a' },
-    warrior: { name: 'Anel do Guerreiro', short: 'Guerreiro', text: '+2 na soma em combate.', stat: 'fight', amount: 2, weight: 1, color: '#d6403a' },
+    mage: { name: 'Anel do Mago', short: 'Mago', text: '+4 de mana máxima.', stat: 'mana', amount: 4, weight: 2, color: '#4da3ff' },
+    key: { name: 'Anel da Chave', short: 'Chave', text: 'Gasta mana: uma carta da mão ganha +2 ao pagar portas e baús.', use: 'pay', amount: 2, weight: 2, color: '#e7b84a' },
+    warrior: { name: 'Anel do Guerreiro', short: 'Guerreiro', text: 'Gasta mana: uma carta da mão ganha +2 em combate.', use: 'fight', amount: 2, weight: 1, color: '#d6403a' },
     hand: { name: 'Anel da Mão', short: 'Mão', text: '+1 carta na mão máxima.', stat: 'hand', amount: 1, weight: 1, color: '#6bd08a' },
     deck: { name: 'Anel do Deck', short: 'Deck', text: 'Ao abrir uma sala nova (ou descer de andar), compra 1 carta a mais.', stat: 'deck', amount: 1, weight: 1, color: '#b48cf2' },
     food: { name: 'Anel da Comida', short: 'Comida', text: 'Ao abrir uma porta com soma exata, 1 carta nova entra no seu deck.', stat: 'food', amount: 1, weight: 1, color: '#c97b3a' },
@@ -46,7 +50,7 @@
     suitC: { name: 'Anel de Paus', short: '♣', suit: 'C', weight: 1, color: '#6fcf97' },
   };
   for (const ring of Object.values(RINGS)) {
-    if (ring.suit) ring.text = `Uma vez por andar: escolha 1 carta da mão e ela vira ${{ S: '♠', H: '♥', D: '♦', C: '♣' }[ring.suit]} até ser usada.`;
+    if (ring.suit) ring.text = `Gasta mana: escolha 1 carta da mão e ela vira ${{ S: '♠', H: '♥', D: '♦', C: '♣' }[ring.suit]} até ser usada.`;
   }
 
   // Nome que aparece para a pessoa: o verdadeiro se já descobriu, senão só a aparência.

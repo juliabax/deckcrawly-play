@@ -456,7 +456,7 @@ html:not(.touch) .btn:hover:not(:disabled) {
 
 .piles {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
 }
 
@@ -940,7 +940,7 @@ html:not(.touch) .hand .card:hover {
 
   .piles {
     flex: none;
-    width: 330px;
+    width: 430px;
   }
 
   .panel {
@@ -2945,4 +2945,96 @@ body.shake main {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+/* ---------- experimento Turnos: inimigos que dormem e perseguem, e a mana (♦) ---------- */
+
+.tile .zzz {
+  position: absolute;
+  right: 6%;
+  top: 0;
+  font-size: calc(var(--tile) * 0.34);
+  font-weight: 800;
+  color: #cfe0ff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  animation: zzz 2.4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes zzz {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.6;
+  }
+  50% {
+    transform: translateY(-14%);
+    opacity: 1;
+  }
+}
+
+.tile .alert {
+  position: absolute;
+  right: 4%;
+  top: -2%;
+  width: calc(var(--tile) * 0.34);
+  height: calc(var(--tile) * 0.34);
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--bad, #d6403a);
+  color: #fff;
+  font-size: calc(var(--tile) * 0.26);
+  font-weight: 800;
+  pointer-events: none;
+}
+
+.tile.t-enemy.awake::before {
+  background: rgba(214, 70, 70, 0.75);
+  animation: awake-pulse 0.9s ease-in-out infinite;
+}
+
+@keyframes awake-pulse {
+  50% {
+    background: rgba(214, 70, 70, 0.4);
+  }
+}
+
+.no-fx .tile.t-enemy.awake::before,
+.no-fx .tile .zzz {
+  animation: none;
+}
+
+.mana-pile .mana-orb {
+  height: 58px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 4px;
+  font-size: 36px;
+  color: #ff9a52;
+  text-shadow: 0 0 14px rgba(255, 154, 82, 0.6);
+}
+
+.mana-pips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.mana-pips i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--line);
+}
+
+.mana-pips i.on {
+  background: #ff9a52;
+  box-shadow: 0 0 4px #ff9a52;
+}
+
+.power-btn.gold b {
+  color: #ff9a52;
 }

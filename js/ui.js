@@ -116,6 +116,7 @@
         overlay: $('overlay'),
         toast: $('toast'),
         floor: $('hud-floor'),
+        turn: $('hud-turn'),
         seed: $('hud-seed'),
         fx: $('fx'),
         stash: $('stash'),
@@ -399,6 +400,11 @@
         if (e.key === '+' || e.key === '=') return this.changeZoom(1);
         if (e.key === '-' || e.key === '_') return this.changeZoom(-1);
       }
+      const dir = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[e.key];
+      if (dir && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        return this.stepDir(dir[0], dir[1]);
+      }
       const n = Number(e.key);
       if (n >= 1 && n <= 5 && this.game.hand[n - 1]) this.toggleCard(this.game.hand[n - 1].id);
     }
@@ -598,25 +604,37 @@
       return document.documentElement.classList.contains('touch');
     }
 
-    // Prévia do caminho até uma casa. Se ele passa pela zona de um inimigo, é cortado
-    // na primeira casa da zona, que ganha a marca de combate (⚔).
+    // Prévia do caminho até uma casa (com o mouse). Se a casa é de um inimigo, o último passo é o ataque (⚔).
     previewPath(x, y) {
       this.clearPath();
-      const f = this.game.floor;
-      if (!this.reachMap || !this.reachMap.has(y * f.w + x)) return null;
-      const cut = this.game.cutPath(DC.pathTo(f, this.reachMap, x, y));
-      for (const p of cut.path) this.tileEls[p.y * f.w + p.x].classList.add('path');
-      const last = cut.path[cut.path.length - 1];
-      if (cut.enemy) this.tileEls[last.y * f.w + last.x].classList.add('fight');
-      return cut;
+      const g = this.game;
+      const f = g.floor;
+      const cell = f.grid[y][x];
+      let target = { x, y };
+      if (cell.type === 'door' || cell.type === 'chest') target = this.sideOf(x, y);
+      const path = target ? g.pathFor(target.x, target.y) : null;
+      if (!path) return null;
+      for (const p of path) this.tileEls[p.y * f.w + p.x].classList.add('path');
+      const last = path[path.length - 1];
+      if (DC.enemyHere(f, last.x, last.y)) this.tileEls[last.y * f.w + last.x].classList.add('fight');
+      else this.tileEls[last.y * f.w + last.x].classList.add('path-end');
+      return path;
     }
 
-    // No toque, o primeiro toque mostra o caminho (a casa final ganha um contorno).
-    showPath(x, y) {
-      const cut = this.previewPath(x, y);
-      if (!cut) return;
-      const last = cut.path[cut.path.length - 1];
-      this.tileEls[last.y * this.game.floor.w + last.x].classList.add('path-end');
+    // A casa livre mais perto de você que encosta numa porta ou baú (para andar até ela).
+    sideOf(x, y) {
+      const g = this.game;
+      let best = null;
+      for (const [dx, dy] of DC.DIRS) {
+        const nx = x + dx;
+        const ny = y + dy;
+        const cell = DC.cellAt(g.floor, nx, ny);
+        if (!cell || !['floor', 'start'].includes(cell.type)) continue;
+        if (nx === g.player.x && ny === g.player.y) return { x: nx, y: ny };
+        const path = g.pathFor(nx, ny);
+        if (path && (!best || path.length < best.len)) best = { x: nx, y: ny, len: path.length };
+      }
+      return best;
     }
 
     // ---------- som ----------
@@ -1125,6 +1143,16 @@
           this.spadeFx(res.count); // compra em rajada
           this.sound('spade');
         }
+        if (suit === 'D') {
+          this.sound('ding');
+          this.toastOk(`+${res.count} de mana (${res.mana}/${this.game.manaMax()})`);
+          const orb = this.el.piles.querySelector('.mana-pile');
+          if (orb && this.fxOn) {
+            const c = centerOf(orb.getBoundingClientRect());
+            this.ring(c.x, c.y, '#ff9a52');
+            this.floatText(`+${res.count} mana`, c.x, c.y - 24, 'gold');
+          }
+        }
       }
     }
 
@@ -1135,7 +1163,8 @@
       const y = Number(tile.dataset.y);
       const cell = this.game.floor.grid[y][x];
 
-      if (cell.type === 'door' || cell.type === 'chest') {
+      const adjacent = this.game.adjacentTargets().some((t) => t.x === x && t.y === y);
+      if ((cell.type === 'door' || cell.type === 'chest') && adjacent) {
         const freeChest = cell.type === 'chest' && this.game.floor.chests[cell.ref].free;
         if (!this.sel.length && !freeChest) return this.toast('Selecione cartas da mão para pagar o custo.');
         const rect = tile.getBoundingClientRect();
@@ -1163,72 +1192,110 @@
         if (res.scroll) this.sound('scroll', 0.4);
         return;
       }
-      // No toque, o primeiro toque numa casa alcançável mostra o caminho e o segundo anda:
-      // um toque errado não gasta a carta.
-      const key = y * this.game.floor.w + x;
-      if (this.isTouch() && this.sel.length === 1 && this.reachMap && this.reachMap.has(key)) {
-        if (this.tapTile !== key) {
-          this.showPath(x, y);
-          this.tapTile = key;
-          return;
-        }
-      }
       this.tapTile = null;
       this.walkTo(x, y);
     }
 
+    // Andar é de graça: toque numa casa (ou num inimigo, porta ou baú) e o personagem vai passo a passo até lá,
+    // parando se algo mudar no caminho.
     async walkTo(x, y) {
-      if (this.sel.length !== 1) {
-        return this.toast(this.sel.length ? 'Para andar, selecione apenas uma carta.' : 'Selecione uma carta para andar.');
+      const g = this.game;
+      const cell = g.floor.grid[y][x];
+      let target = { x, y };
+      if (cell.type === 'door' || cell.type === 'chest') {
+        target = this.sideOf(x, y);
+        if (!target) return this.toast('Não dá para chegar perto dali.');
+        if (target.x === g.player.x && target.y === g.player.y) return;
       }
-      const walked = this.game.hand.find((c) => c.id === this.sel[0]);
-      const res = this.game.walk(this.sel[0], x, y);
-      if (!res.ok) return this.reject(res.error);
-      // ♦ dobra o alcance: o personagem desliza mais rápido, deixando riscos de velocidade.
-      const fast = this.fxOn && walked.suit === 'D';
-      const stepMs = fast ? 62 : 95;
+      const path = g.pathFor(target.x, target.y);
+      if (!path) return this.toast('Não dá para chegar lá.');
+      await this.walkPath(path);
+      if ((cell.type === 'door' || cell.type === 'chest') && g.canAct() && g.adjacentTargets().some((t) => t.x === x && t.y === y)) {
+        this.toast(cell.type === 'chest' && g.floor.chests[cell.ref].free ? 'Toque no baú para abrir de graça.' : 'Escolha cartas da mão e toque na porta para pagar.');
+      }
+    }
+
+    // Um passo na direção (teclas de seta).
+    stepDir(dx, dy) {
+      const g = this.game;
+      if (this.busy || !g.canAct()) return;
+      this.walkPath([{ x: g.player.x, y: g.player.y }, { x: g.player.x + dx, y: g.player.y + dy }]);
+    }
+
+    // Anda o caminho passo a passo: cada passo é um turno (os inimigos agem depois dele).
+    async walkPath(path) {
+      const g = this.game;
+      const stepMs = 95;
       this.sel = [];
       this.busy = true;
       this.clearPath();
       this.renderSide();
       this.el.map.style.setProperty('--step', `${stepMs + 15}ms`);
-      if (fast) {
-        const t = centerOf(this.token.getBoundingClientRect());
-        this.floatText('×2', t.x, t.y - 20, 'gold');
-      }
-      if (walked.suit === 'D') this.sound('swoosh');
-      let prev = res.path[0];
-      for (const step of res.path.slice(1)) {
-        this.stepFx(prev, step, fast);
-        this.sound('step');
-        this.placeToken(step.x, step.y);
-        prev = step;
-        await sleep(stepMs);
+      const total = { steps: 0, combat: false, trap: null, descended: false, woke: [], picked: [] };
+      let prev = path[0];
+      let last = null;
+      for (const cell of path.slice(1)) {
+        const res = g.step(cell.x, cell.y);
+        if (!res.ok) {
+          if (!total.steps) this.reject(res.error);
+          break;
+        }
+        last = res;
+        total.combat = total.combat || res.combat;
+        total.trap = total.trap || res.trap;
+        total.descended = total.descended || res.descended;
+        total.woke.push(...res.woke);
+        total.picked.push(...res.picked);
+        if (res.moved) {
+          total.steps++;
+          // Se há inimigos em movimento, o mapa é redesenhado, mas o personagem continua deslizando.
+          if (g.floor === res.floorBefore && (res.woke.length || res.combat || g.floor.enemies.some((e) => !e.dead && e.awake))) {
+            const oldToken = this.token.style.transform;
+            const oldMap = this.el.map.style.transform;
+            this.renderMap(false);
+            this.token.style.transition = 'none';
+            this.el.map.style.transition = 'none';
+            this.token.style.transform = oldToken;
+            this.el.map.style.transform = oldMap;
+            void this.token.offsetWidth;
+            this.token.style.transition = '';
+            this.el.map.style.transition = '';
+          }
+          this.stepFx(prev, cell, false);
+          this.sound('step');
+          this.placeToken(cell.x, cell.y);
+          prev = cell;
+          await sleep(stepMs);
+        }
+        if (res.woke.length) await this.wokeFx(res.woke);
+        if (g.stopWalking(res)) break;
       }
       await sleep(80);
       this.el.map.style.removeProperty('--step');
-      this.track('move', { steps: res.path.length - 1, suit: walked.suit });
-      if (res.combat) this.track('combat');
-      if (res.trap) this.track('trap', { kind: res.trap.kind });
-      if (res.descended && this.game.status === 'playing') this.track('descend');
-      if (res.combat) {
+      if (total.steps) this.track('move', { steps: total.steps });
+      if (total.woke.length) this.track('wake', { count: total.woke.length });
+      if (total.combat) this.track('combat');
+      if (total.trap) this.track('trap', { kind: total.trap.kind });
+      if (total.descended && g.status === 'playing') this.track('descend');
+      if (total.combat) {
         this.combatStartFx();
         await sleep(this.fxOn ? 500 : 0);
       }
-      if (res.trap) {
+      if (total.trap) {
         // Armadilha: o dardo sacode a tela e some com cartas do deck; a outra derruba para o andar de cima.
-        this.sound(res.trap.kind === 'dart' ? 'hit' : 'lose');
-        this.toast(res.trap.kind === 'dart' ? `Armadilha de dardo! ${res.trap.burned} carta(s) do deck foram para o cemitério.` : `Armadilha! Você caiu para o andar ${this.game.floorNo}.`);
+        const trap = total.trap;
+        this.sound(trap.kind === 'dart' ? 'hit' : 'lose');
+        this.toast(trap.kind === 'dart' ? `Armadilha de dardo! ${trap.burned} carta(s) do deck foram para o cemitério.` : `Armadilha! Você caiu para o andar ${g.floorNo}.`);
         if (this.fxOn) {
           const t = centerOf(this.token.getBoundingClientRect());
           this.ring(t.x, t.y, '#ff6b6b');
           this.burst(t.x, t.y, { count: 18, color: '#ff6b6b', spread: 70 });
-          this.floatText(res.trap.kind === 'dart' ? `Dardo! −${res.trap.burned} do deck` : 'Armadilha!', t.x, t.y - 34, 'bad');
+          this.floatText(trap.kind === 'dart' ? `Dardo! −${trap.burned} do deck` : 'Armadilha!', t.x, t.y - 34, 'bad');
           document.body.classList.add('shake');
           setTimeout(() => document.body.classList.remove('shake'), 450);
           await sleep(600);
         }
-        if (res.trap.floorChanged && this.fxOn) {
+        if (trap.floorChanged && this.fxOn) {
           await this.floorVeil(() => {
             this.busy = false;
             this.renderAll();
@@ -1236,8 +1303,8 @@
           return;
         }
       }
-      if (res.descended && this.game.status === 'playing') this.sound('stairs');
-      if (res.descended && this.game.status === 'playing' && this.fxOn) {
+      if (total.descended && g.status === 'playing') this.sound('stairs');
+      if (total.descended && g.status === 'playing' && this.fxOn) {
         await this.floorVeil(() => {
           this.busy = false;
           this.renderAll();
@@ -1248,10 +1315,25 @@
       }
     }
 
+    // Um inimigo acordou: um "!" sobe da cabeça dele.
+    async wokeFx(ids) {
+      const g = this.game;
+      this.sound('combat');
+      if (!this.fxOn) return;
+      for (const id of ids) {
+        const e = g.floor.enemies.find((o) => o.id === id);
+        const tile = e && this.tileEls[e.y * g.floor.w + e.x];
+        if (!tile) continue;
+        const c = centerOf(tile.getBoundingClientRect());
+        this.floatText('!', c.x, c.y - 14, 'bad');
+      }
+      await sleep(260);
+    }
+
     onMapHover(e) {
       if (this.isTouch()) return;
       this.clearPath();
-      if (!this.reachMap || this.busy || this.dragging) return;
+      if (this.busy || this.dragging || !this.game.canAct()) return;
       const tile = e.target.closest('.tile');
       if (!tile) return;
       this.previewPath(Number(tile.dataset.x), Number(tile.dataset.y));
@@ -1423,6 +1505,7 @@
     renderSide() {
       const g = this.game;
       this.el.floor.textContent = `Andar ${g.floorNo} / ${g.config.floors}`;
+      this.el.turn.textContent = `Turno ${g.turn}`;
       this.el.seed.textContent = g.tutorial ? 'treino' : `seed ${g.seed}`;
       this.renderPiles();
       this.renderHand();
@@ -1443,7 +1526,8 @@
       this.el.piles.innerHTML =
         pile(lowDeck ? 'Deck acabando!' : 'Seu deck (vida)', g.playerDeck.length, g.playerDeck.length ? '<div class="card back small"></div>' : '<div class="empty"></div>') +
         pile('Cemitério', g.discard.length, top ? cardHTML(top, { small: true, extra: 'static' }) : '<div class="empty"></div>').replace('class="pile"', 'class="pile grave-pile" data-pile="grave" title="Cartas usadas: não voltam ao deck. Toque para ver."') +
-        pile('Cartas da dungeon', dungeonLeft, dungeonLeft ? '<div class="card back dungeon small"></div>' : '<div class="empty"></div>');
+        pile('Cartas da dungeon', dungeonLeft, dungeonLeft ? '<div class="card back dungeon small"></div>' : '<div class="empty"></div>') +
+        this.manaHTML();
 
       // O contador "pula" quando muda. O do descarte espera a carta chegar.
       const counts = [g.playerDeck.length, g.discard.length, dungeonLeft];
@@ -1462,6 +1546,14 @@
       // Uma batida de coração só na hora em que o deck fica perigosamente baixo.
       if (lowDeck && !this.lowDeckOn) this.sound('heartbeat');
       this.lowDeckOn = lowDeck;
+    }
+
+    // Estoque de mana: se enche descartando ♦ (poder) e se gasta nos anéis.
+    manaHTML() {
+      const g = this.game;
+      const max = g.manaMax();
+      const pips = Array.from({ length: max }, (_, i) => `<i class="${i < g.mana ? 'on' : ''}"></i>`).join('');
+      return `<div class="pile mana-pile" title="Mana: descarte um ♦ (poder) para ganhar mana igual ao número dele. Os anéis gastam ${g.config.ringUseMana} de mana por uso."><div class="mana-orb">♦</div><b>${g.mana}/${max}</b>Mana<div class="mana-pips">${pips}</div></div>`;
     }
 
     // Quantas cartas o poder de ♥ (comprar) compraria agora, limitado pela mão e pelo deck.
@@ -1521,14 +1613,17 @@
     ringsHTML() {
       const g = this.game;
       const R = DC.ROGUE.RINGS;
+      const cost = g.config.ringUseMana;
       const worn = g.rings.filter(Boolean).length;
       const chips = g.rings
         .map((ring, i) => {
           if (!ring) return '<div class="bag-slot" title="Espaço de anel livre"></div>';
           const def = R[ring.ring];
-          const tip = `${def.name}: ${def.text}${def.suit ? (ring.charged ? ' Escolha 1 carta e toque no anel.' : ' (já usado neste andar)') : ''}`;
-          const state = def.suit ? (ring.charged ? 'pronto' : 'recarrega') : 'no dedo';
-          return `<button class="bag-slot item ring${def.suit && !ring.charged ? ' spent' : ''}${def.suit ? ' suit' : ''}" data-ring="${i}" title="${tip}">${ringSVG(ring.ring)}<span>${def.short}</span><small>${state}</small></button>`;
+          const active = Boolean(def.suit || def.use);
+          const broke = active && g.mana < cost;
+          const tip = `${def.name}: ${def.text}${active ? ` Custa ${cost} de mana. Escolha 1 carta e toque no anel.` : ''}`;
+          const state = active ? `${cost} mana` : 'no dedo';
+          return `<button class="bag-slot item ring${broke ? ' spent' : ''}${active ? ' suit' : ''}" data-ring="${i}" title="${tip}">${ringSVG(ring.ring)}<span>${def.short}</span><small>${state}</small></button>`;
         })
         .join('');
       return `<div class="stash-label">Anéis ${worn}/${g.rings.length}</div><div class="bag-row">${chips}</div>`;
@@ -1540,9 +1635,9 @@
       const ring = g.rings[slot];
       if (!ring) return;
       const def = DC.ROGUE.RINGS[ring.ring];
-      if (!def.suit) return this.toast(`${def.name}: ${def.text} (vale enquanto está no dedo)`);
+      if (!def.suit && !def.use) return this.toast(`${def.name}: ${def.text} (vale enquanto está no dedo)`);
       if (!g.canAct() && !g.canFight()) return this.toast('Não dá para usar o anel agora.');
-      if (!ring.charged) return this.toast(`${def.name} já foi usado neste andar: recarrega no próximo.`);
+      if (g.mana < g.config.ringUseMana) return this.toast(`${def.name} custa ${g.config.ringUseMana} de mana e você tem ${g.mana}. Descarte um ♦ para ganhar mana.`);
       if (this.sel.length !== 1) return this.toast(`Escolha 1 carta da mão e toque no ${def.name}.`);
       const id = this.sel[0];
       const res = g.useRing(slot, id);
@@ -1554,9 +1649,9 @@
       if (el && this.fxOn) {
         const c = centerOf(el.getBoundingClientRect());
         this.ring(c.x, c.y, def.color);
-        this.burst(c.x, c.y, { count: 14, color: def.color, spread: 60, glyph: DC.SUIT_SYMBOL[def.suit] });
+        this.burst(c.x, c.y, { count: 14, color: def.color, spread: 60, glyph: def.suit ? DC.SUIT_SYMBOL[def.suit] : '+' });
       }
-      this.toastOk(`${label(res.card)}: o anel mudou o naipe.`);
+      this.toastOk(def.suit ? `${label(res.card)}: o anel mudou o naipe (−${g.config.ringUseMana} de mana).` : `${label(res.card)}: +${def.amount} ${def.use === 'pay' ? 'ao pagar' : 'em combate'} (−${g.config.ringUseMana} de mana).`);
     }
 
     useItemClick(id) {
@@ -1621,8 +1716,14 @@
     // Texto do emblema de uma carta da mão: o que ela faz de verdade (♦ dobra ao andar,
     // ♣ copia, ♥ compra e ♠ dobra no combate; a compra já é limitada pelo deck e pela mão).
     cardBadge(card) {
+      const text = this.cardBadgeText(card);
+      const boost = card.boost && (card.boost.pay || card.boost.fight);
+      return boost ? `${text} · +${boost} anel` : text;
+    }
+
+    cardBadgeText(card) {
       const g = this.game;
-      if (card.suit === 'D') return `anda ${card.rank * 2}`;
+      if (card.suit === 'D') return `mana +${g.cardValue(card)}`;
       if (card.suit === 'C') {
         const copied = g.jokerTarget(card);
         return copied ? `copia ${copied.rank}` : `vale ${card.rank}`;
@@ -1717,7 +1818,7 @@
       const cards = g.handCards(this.sel) || [];
       // No combate o ♠ vale o dobro; nas portas e no andar, só o número.
       const sum = combat ? g.attackSum(this.sel) : g.payTotal(this.sel);
-      const ringPlus = cards.length ? g.ringBonus(combat ? 'fight' : 'pay') : 0;
+      const ringPlus = cards.reduce((n, c) => n + g.boostOf(c, combat ? 'fight' : 'pay'), 0);
       // Soma exata: bate com o custo de uma carta do inimigo (ou, com ♠, de um grupo de cartas) ou de uma
       // porta/baú ao lado. É a melhor jogada (compra 1 carta), então o box inteiro ganha destaque.
       let exact = false;
@@ -1741,24 +1842,12 @@
         }
       }
       const star = exact ? '<span class="exact-tag">★ soma exata · +1 carta</span>' : '';
-      let html = `<h3>Seleção · soma ${sum}${ringPlus ? ` <small>(+${ringPlus} do anel)</small>` : ''}${star}</h3><div class="row">${cards.map(miniChip).join('')}</div>`;
+      let html = `<h3>Seleção · soma ${sum}${ringPlus ? ` <small>(+${ringPlus} de anel)</small>` : ''}${star}</h3><div class="row">${cards.map(miniChip).join('')}</div>`;
       if (combat && cards.some((c) => c.suit === 'S')) {
         html += `<p class="muted">♠ vale o dobro em combate (${cards
           .filter((c) => c.suit === 'S')
           .map((c) => `${g.cardValue(c)}→${g.attackValue(c)}`)
           .join(', ')}) e pode derrubar várias cartas do inimigo.</p>`;
-      }
-
-      if (cards.length === 1) {
-        const c = cards[0];
-        if (!combat) {
-          const range = g.walkRange(c);
-          let why = '';
-          if (c.suit === 'D') why = ` (${c.rank} × 2 do ♦)`;
-          else if (c.suit === 'C' && g.jokerTarget(c)) why = ` (coringa copia ${label(g.jokerTarget(c))})`;
-          const ringWalk = g.ringBonus('walk');
-          html += `<p><b>Andar:</b> até ${range} casa(s)${why}${ringWalk ? ` (+${ringWalk} do anel)` : ''}.</p>`;
-        }
       }
 
       for (const joker of cards.filter((c) => c.suit === 'C')) {
@@ -1786,8 +1875,14 @@
         const what = `Comprar ${n} carta${n === 1 ? '' : 's'}`;
         body = `<button class="btn power-btn red" data-act="power" ${n ? '' : 'disabled'} title="${what}">
           <b>${sym(c.suit)}</b><span>Usar poder</span><small>${n ? what : 'sem efeito agora'}</small></button>`;
+      } else if (c && c.suit === 'D') {
+        const full = g.mana >= g.manaMax();
+        const gain = Math.min(g.cardValue(c), g.manaMax() - g.mana);
+        const what = full ? 'Mana cheia' : `Ganhar ${gain} de mana (${g.mana} → ${g.mana + gain})`;
+        body = `<button class="btn power-btn gold" data-act="power" ${full ? 'disabled' : ''} title="${what}">
+          <b>${sym(c.suit)}</b><span>Virar mana</span><small>${what}</small></button>`;
       } else {
-        body = '<div class="power-empty">Escolha uma carta ♥ para comprar cartas</div>';
+        body = '<div class="power-empty">Escolha uma carta ♥ para comprar ou ♦ para ganhar mana</div>';
       }
       return `<div class="power-label">Poder</div>${body}`;
     }
@@ -1807,9 +1902,10 @@
       const cards = g.handCards(this.sel) || [];
       panel.classList.remove('exact');
       if (!cards.length) {
-        panel.innerHTML = `<h3>Sua vez</h3>
+        panel.innerHTML = `<h3>Sua vez · turno ${g.turn}</h3>
           <p>Selecione cartas da mão:</p>
-          <p class="muted">• <b>1 carta</b> anda (${this.isTouch() ? 'toque numa casa dourada para ver o caminho e de novo para andar' : 'clique numa casa dourada'}) ou usa o poder do naipe.<br>
+          <p class="muted">• <b>Andar é de graça:</b> ${this.isTouch() ? 'toque' : 'clique'} numa casa (ou use as setas). Cada passo é um turno e os inimigos se mexem.<br>
+          • <b>1 carta</b> usa o poder do naipe (♥ compra, ♦ vira mana).<br>
           • <b>Cartas somadas</b> abrem portas e baús ao seu lado.</p>${
             g.adjacentTargets().some((t) => t.kind === 'chest' && t.obj.free) ? `<p><b>Baú destrancado</b> ao seu lado: ${this.isTouch() ? 'toque' : 'clique'} nele para abrir de graça, sem gastar cartas.</p>` : ''
           }`;
@@ -1894,15 +1990,17 @@
               const enemy = (f.enemies || []).find((e) => !e.dead && e.x === x && e.y === y);
               if (enemy) {
                 const left = remainingEnemyCards(enemy);
-                cls += ' t-enemy zone';
+                cls += enemy.awake ? ' t-enemy awake' : ' t-enemy zone sleeping';
                 const facedown = left.filter((c) => isHiddenCard(enemy, c)).length;
                 inner =
                   (enemy.kind === 'rat' ? RAT_SVG : art ? `<i class="sprite enemy-sprite k-${enemy.kind}"></i>` : ENEMY_SVG) +
                   `<span class="enemy-cards${left.length > 2 ? ' many' : ''}">${left.map((c) => (isHiddenCard(enemy, c) ? MINI_BACK : miniHTML(c))).join('')}</span>`;
-                title = `Inimigo (${left.length} carta${left.length === 1 ? '' : 's'}${facedown ? `, ${facedown} virada${facedown === 1 ? '' : 's'}` : ''}): entrar na zona vermelha começa um combate`;
-              } else if (DC.enemyAt(f, x, y)) {
+                title = `${enemy.awake ? 'Acordado: vem atrás de você' : 'Dormindo: chegar perto na zona vermelha pode acordá-lo'} (${left.length} carta${left.length === 1 ? '' : 's'}${facedown ? `, ${facedown} virada${facedown === 1 ? '' : 's'}` : ''}). Toque nele para atacar`;
+                if (!enemy.awake) inner += '<span class="zzz">z</span>';
+                else inner += '<span class="alert">!</span>';
+              } else if ((f.enemies || []).some((e) => DC.inWakeZone(e, cell, x, y))) {
                 cls += ' zone';
-                title = 'Zona de ataque: entrar aqui começa um combate';
+                title = 'Zona de um inimigo dormindo: terminar um turno aqui pode acordá-lo';
               }
               {
                 const trap = (f.traps || []).find((t) => t.sprung && t.x === x && t.y === y);
@@ -2034,13 +2132,7 @@
       if (g.status !== 'playing' || g.pending || this.busy) return;
       this.tourHighlights();
 
-      if (this.sel.length === 1) {
-        this.reachMap = g.reachFor(this.sel[0]);
-        for (const [key, node] of this.reachMap) {
-          if (node.dist > 0) this.tileEls[key].classList.add('reach');
-        }
-      }
-      const sum = this.sel.length ? g.selectionSum(this.sel) : null;
+      const sum = this.sel.length ? g.payTotal(this.sel) : null;
       for (const t of g.adjacentTargets()) {
         const el = this.tileEls[t.y * f.w + t.x];
         if (sum === null) el.classList.add('open-hint');
@@ -2378,7 +2470,7 @@
       const step = this.tutor.step;
       if (!step || step.kind !== 'coach' || this.tutor.isDone() || this.game.status !== 'playing') return null;
       const c = this.coachCtx();
-      if (step.id === 'move') return c.selected ? null : 'hand';
+      if (step.id === 'move') return null;
       if (step.id === 'door') return !c.adjacent ? 'doors' : c.selected ? 'target' : 'hand';
       if (step.id === 'exit') return 'stairs';
       return null;
@@ -2883,7 +2975,7 @@
         <div class="combat-sel${exact ? ' exact' : ''}">${cards.length ? selHTML : '<p class="muted">Escolha cartas da mão. O poder de ♥ (comprar) funciona aqui, e o ♠ vale o dobro.</p>'}</div>
         <div class="actions">
           ${multi ? `<button class="btn primary" data-ov="attack-go" ${marked.length && sum >= markedCost ? '' : 'disabled'}>${marked.length ? `Atacar ${marked.length} carta${marked.length === 1 ? '' : 's'} (custo ${markedCost})` : 'Marque as cartas do inimigo'}</button>` : ''}
-          ${g.rings.map((r, i) => (r && DC.ROGUE.RINGS[r.ring].suit ? `<button class="btn ring-btn" data-ring="${i}" ${r.charged ? '' : 'disabled'} title="${DC.ROGUE.RINGS[r.ring].text}">${DC.ROGUE.RINGS[r.ring].short} ${DC.ROGUE.RINGS[r.ring].name}${r.charged ? '' : ' (usado)'}</button>` : '')).join('')}
+          ${g.rings.map((r, i) => (r && (DC.ROGUE.RINGS[r.ring].suit || DC.ROGUE.RINGS[r.ring].use) ? `<button class="btn ring-btn" data-ring="${i}" ${g.mana >= g.config.ringUseMana ? '' : 'disabled'} title="${DC.ROGUE.RINGS[r.ring].text} Custa ${g.config.ringUseMana} de mana.">${DC.ROGUE.RINGS[r.ring].short} ${DC.ROGUE.RINGS[r.ring].name} (${g.config.ringUseMana} mana)</button>` : '')).join('')}
           <button class="btn ${last && pick ? 'danger' : ''}" data-ov="flee" ${pick ? '' : 'disabled'}>${fleeLabel}</button>
           <button class="btn" data-act="clear" ${cards.length ? '' : 'disabled'}>Limpar seleção</button>
         </div>
@@ -2973,7 +3065,7 @@
         <p>Desça os ${this.game.config.floors} andares até a escada de saída (▼). Sua <b>vida é o deck + a mão</b>: se não restar nenhuma ação possível, você perde.</p>
         <h4>Cartas</h4>
         <ul>
-          <li><b>Andar:</b> use 1 carta; o número é o alcance máximo em casas (A=1, J=11, Q=12, K=13). Só anda na vertical e horizontal. O que sobrar do movimento se perde.</li>
+          <li><b>Andar é de graça</b>, por turnos (como no Rogue): toque numa casa e o personagem vai passo a passo (ou use as setas do teclado). Só anda na vertical e horizontal. <b>Cada passo é um turno</b>, e abrir uma porta ou um baú também passa um turno. Depois do seu turno os inimigos agem.</li>
           <li><b>Abrir portas e baús:</b> fique ao lado, selecione cartas cuja soma seja pelo menos o custo. <b>Soma exata</b> compra 1 carta de graça; soma maior apenas abre.</li>
           <li><b>Baú:</b> mostra 5 cartas do seu deck, você leva até 2 e o resto volta ao deck. Todo baú guarda um prêmio. O que <b>custa cartas</b> é o grande: um <b>anel</b> (metade das vezes) ou, senão, um <b>Bife</b> garantido. O <b>destrancado</b> (marcado "grátis") abre sem gastar cartas e dá uma <b>Maçã</b> (em um a cada quatro, um anel).
           <li>Toda carta usada vai para o <b>cemitério</b> (o descarte) e <b>nunca volta</b> ao deck. Toque na pilha para ver o que já foi.</li>
@@ -2983,25 +3075,25 @@
         <ul>
           <li><b>♥ Copas:</b> compra até N cartas (mão máxima de ${this.game.config.handMax}).</li>
           <li><b>♠ Espadas:</b> em combate vale o <b>dobro</b>, e com um ♠ você derruba <b>várias cartas</b> do inimigo de uma vez, se o valor cobrir todas. Fora do combate vale só o número.</li>
-          <li><b>♦ Ouros:</b> ao andar, o número vale em dobro.</li>
+          <li><b>♦ Ouros:</b> mana. Descarte um ♦ pelo poder e ganhe mana igual ao número dele (até o teto de ${this.game.config.manaMax}). A mana fica guardada e é gasta nos anéis.</li>
           <li><b>♣ Paus:</b> coringa. Vale o próprio número, mas você pode escolher copiar o rank de outra carta da mão.</li>
         </ul>
-        <h4>Anéis</h4>
-        <p>Os anéis ficam no dedo (<b>2 espaços</b>) e modificam as cartas. Vêm de <b>baús</b> (metade deles guarda um) e de <b>inimigos</b> (os mais difíceis deixam mais). <b>Caminhante:</b> +2 ao andar. <b>Chave:</b> +2 na soma ao pagar portas e baús. <b>Guerreiro:</b> +2 na soma em combate. <b>Mão:</b> +1 na mão máxima. <b>Deck:</b> +1 carta ao abrir sala nova. <b>Comida:</b> porta aberta com soma exata põe 1 carta nova no seu deck. <b>Anéis de naipe</b> (♠ ♥ ♦ ♣): 1 uso por andar, escolha 1 carta da mão e toque no anel para ela virar daquele naipe até ser usada (o de ♥, por exemplo, faz qualquer carta comprar cartas). Ao achar um anel você escolhe em que espaço vesti-lo, trocando o que estiver lá, ou deixa para trás.</p>
+        <h4>Anéis e mana</h4>
+        <p>Os anéis ficam no dedo (<b>2 espaços</b>). Vêm de <b>baús</b> (metade deles guarda um) e de <b>inimigos</b> (os mais difíceis deixam mais). Ao achar um, você escolhe em que espaço vesti-lo, trocando o que estiver lá, ou deixa para trás. <b>Passivos</b> (valem sozinhos): <b>Mão</b> +1 na mão máxima, <b>Deck</b> +1 carta ao abrir sala nova, <b>Comida</b> porta aberta com soma exata põe 1 carta nova no deck, <b>Mago</b> +4 de mana máxima. <b>Ativos</b> (gastam ${this.game.config.ringUseMana} de mana por uso: escolha 1 carta da mão e toque no anel): <b>Chave</b> a carta ganha +2 ao pagar portas e baús, <b>Guerreiro</b> a carta ganha +2 em combate (só aquela carta, uma vez), e os <b>anéis de naipe</b> (♠ ♥ ♦ ♣) viram a carta daquele naipe até ser usada.</p>
         <h4>Névoa</h4>
         <p>Você só enxerga a sala em que está e as salas cujas portas já abriu. Não dá para saber onde fica a escada de saída: é preciso gastar cartas explorando. O botão "Névoa" no topo (ou a tecla F) liga e desliga, útil para testar.</p>
         <h4>Zoom</h4>
         <p>Os botões + e − no canto do mapa (ou as teclas + e −) aproximam e afastam. Com zoom perto, o mapa acompanha o seu personagem; em 100% você vê a masmorra inteira. Para olhar outras salas, <b>arraste o mapa</b> (em qualquer ponto, inclusive na parte escura). O botão ◎ ao lado do zoom (ou a tecla C) volta para o personagem, e a câmera também volta sozinha quando ele anda.</p>
         <h4>Inimigos</h4>
-        <p>Há também <b>ratos</b>: inimigos pequenos de <b>1 carta baixa</b> (1 a 5), com zona de 1 casa, espalhados pelas salas. Derrubar um custa pouco e rende menos (às vezes uma Maçã). Os inimigos grandes: um inimigo parado guarda uma sala, com <b>2 cartas</b> (<b>3 nos andares mais fundos</b>, os de foice e de manto): cada uma é como o custo de uma porta, mas <b>em alguns inimigos (cerca de 1 em 4) uma delas começa virada de costas</b> e só aparece quando você derruba outra. Há uma <b>zona vermelha</b> ao redor: a maioria tem 1 casa de alcance, mas <b>uns 30% têm alcance 2</b> e podem trancar a sala, aí só dá para passar lutando (ou fugindo). Os inimigos gastam as cartas que sobram no deck da dungeon depois das portas e dos baús, então o contador "Cartas da dungeon" mostra o que ainda cobra algo (portas, baús e cartas de inimigos). Se o seu caminho entra na zona, o movimento é cortado e começa o <b>combate</b>: escolha cartas da mão cuja soma seja pelo menos o custo de uma carta dele e derrube-a (soma exata compra 1 carta); o poder de ♥ funciona ali e o ♠ vale o dobro. Derrotando as 2 cartas você vence e compra 1 carta. Dá para <b>fugir</b> descartando 1 carta (você volta para fora da zona e as cartas já derrubadas continuam derrubadas), mas se for a sua última carta você perde.</p>
+        <p>Os inimigos <b>começam dormindo</b>. Se você termina um turno na <b>zona vermelha</b> ao redor de um (1 casa, e uns 30% têm 2), ele pode <b>acordar</b>: cerca de 2 em 3 para os grandes e 1 em 3 para os ratos. Acordado, ele <b>anda uma casa por turno atrás de você</b>, sempre dentro da sala dele (não abre portas), e quando encosta começa o <b>combate</b>. Você também pode atacar um que dorme, tocando nele. Há <b>ratos</b>: inimigos pequenos de <b>1 carta baixa</b> (1 a 5), que rendem menos (às vezes uma Maçã). Os grandes têm <b>2 cartas</b> (<b>3 nos andares mais fundos</b>): cada uma é como o custo de uma porta, mas <b>em alguns (cerca de 1 em 4) uma delas começa virada de costas</b> e só aparece quando você derruba outra. No combate, escolha cartas da mão cuja soma seja pelo menos o custo de uma carta dele e derrube-a (soma exata compra 1 carta); o poder de ♥ funciona ali e o ♠ vale o dobro. Derrotando todas as cartas você vence e compra 1 carta. Dá para <b>fugir</b> descartando 1 carta: o inimigo fica parado por 2 turnos, dando tempo de se afastar (as cartas já derrubadas continuam derrubadas), mas se for a sua última carta você perde.</p>
         <h4>Pergaminho de Inventário</h4>
         <p>Cada inimigo tem <b>30% de chance</b> de deixar um pergaminho <b>no lugar da carta de vitória</b>, e <b>30% dos baús</b> o guardam <b>no lugar das cartas</b>. Você já começa com <b>1 slot de brinde</b>, e cada pergaminho abre mais um (até 3 no total) ao lado da mão, onde você <b>guarda cartas</b> para usar depois. Para guardar, escolha 1 carta da mão e toque num slot livre (no baú, marque a carta e toque no slot: ela é guardada em vez de descartada). Toque na carta guardada para devolvê-la à mão. Guardar e devolver é grátis, a qualquer momento, até em combate, mas para <b>usar</b> a carta ela precisa estar na mão (o limite de 7 continua). Se a mão esvaziar mas houver cartas nos slots, você ainda não perdeu.</p>
         <h4>No iPad (toque)</h4>
-        <p>Toque numa carta para escolher (toque de novo para soltar). Toque numa casa dourada para <b>ver o caminho</b> e toque <b>de novo na mesma casa</b> para andar, assim um toque errado não gasta a carta. Toque numa porta ou baú ao seu lado para abrir. <b>Arraste o mapa com o dedo</b> para olhar outras salas; o botão ◎ volta para o personagem.</p>
+        <p>Toque numa carta para escolher (toque de novo para soltar). Toque numa casa para <b>andar até lá</b> (andar é de graça). Toque numa porta ou baú ao seu lado para abrir; se estiver longe, o personagem vai até ao lado dela. <b>Arraste o mapa com o dedo</b> para olhar outras salas; o botão ◎ volta para o personagem.</p>
         <h4>Salas novas</h4>
         <p>Ao abrir a porta de uma sala nova (ou ao descer de andar) você ganha ${this.game.config.refillDraw} carta do seu deck, sem passar do limite de ${this.game.config.handMax} na mão: ela aparece de costas e vira. Se a porta foi aberta com soma exata, você ainda ganha mais uma carta de graça, que vira junto.</p>
         <h4>Atalhos</h4>
-        <p>Teclas 1–5 selecionam cartas da mão; Esc limpa a seleção; F liga/desliga a névoa; E liga/desliga os efeitos; M liga/desliga o som; A alterna a arte de pixel art; + e − aproximam e afastam o mapa; C centraliza no personagem.</p>
+        <p>Setas andam um passo; teclas 1–5 selecionam cartas da mão; Esc limpa a seleção; F liga/desliga a névoa; E liga/desliga os efeitos; M liga/desliga o som; A alterna a arte de pixel art; + e − aproximam e afastam o mapa; C centraliza no personagem.</p>
         ${this.artAvailable ? '<p class="muted">Arte do mapa, dos inimigos e do herói: pixel art de <b>Pixel_Poem</b> (pixel-poem.itch.io).</p>' : ''}
         <div class="actions"><button class="btn primary" data-ov="close-help">Entendi</button></div>
       </div>`;

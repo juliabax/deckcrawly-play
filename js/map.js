@@ -310,6 +310,9 @@
       room: 0,
       range: 1,
       blocks: true,
+      awake: false,
+      stun: 0,
+      wake: 1, // no treino ele sempre acorda quando você chega perto
       kind: 'skeleton1',
       cards,
       hidden: [],
@@ -479,7 +482,7 @@
 
   // Busca em largura até maxSteps casas. A saída encerra o movimento (não dá
   // para atravessá-la) e portas fechadas e baús bloqueiam o caminho.
-  function reach(floor, from, maxSteps) {
+  function reach(floor, from, maxSteps, blocked = null) {
     const key = (x, y) => y * floor.w + x;
     const found = new Map();
     found.set(key(from.x, from.y), { x: from.x, y: from.y, dist: 0, prev: null });
@@ -494,7 +497,7 @@
         const cell = cellAt(floor, nx, ny);
         if (!cell || found.has(key(nx, ny))) continue;
         const passable = isWalkable(cell) || (cell.type === 'door' && floor.doors[cell.ref].open);
-        if (!passable) continue;
+        if (!passable || (blocked && blocked(nx, ny))) continue;
         const node = { x: nx, y: ny, dist: cur.dist + 1, prev: key(cur.x, cur.y) };
         found.set(key(nx, ny), node);
         queue.push(node);
@@ -511,6 +514,45 @@
       node = node.prev === null ? null : found.get(node.prev);
     }
     return path;
+  }
+
+  // Inimigo vivo parado exatamente nesta casa (a zona de ataque só vale para quem ainda dorme).
+  function enemyHere(floor, x, y) {
+    return (floor.enemies || []).find((e) => !e.dead && e.x === x && e.y === y) || null;
+  }
+
+  // Zona onde um inimigo ADORMECIDO pode acordar: casas em cruz até `range`, na sala dele.
+  function inWakeZone(enemy, cell, x, y) {
+    return !enemy.dead && !enemy.awake && inZone(enemy, cell, x, y);
+  }
+
+  // Próximo passo de um inimigo acordado que persegue `target`: ele só anda dentro da sala dele, por casas livres
+  // (nada de portas, baús, escadas ou outros inimigos). Vai para a casa alcançável mais perto de quem persegue.
+  // Devolve a casa do passo, ou null se já está na melhor casa.
+  function chaseStep(floor, enemy, target) {
+    const key = (x, y) => y * floor.w + x;
+    const taken = new Set((floor.enemies || []).filter((o) => !o.dead && o !== enemy).map((o) => key(o.x, o.y)));
+    taken.add(key(target.x, target.y));
+    const seen = new Map([[key(enemy.x, enemy.y), { x: enemy.x, y: enemy.y, first: null, dist: 0 }]]);
+    const queue = [seen.get(key(enemy.x, enemy.y))];
+    let best = seen.get(key(enemy.x, enemy.y));
+    const score = (n) => [Math.abs(n.x - target.x) + Math.abs(n.y - target.y), n.dist];
+    while (queue.length) {
+      const cur = queue.shift();
+      const a = score(cur);
+      const b = score(best);
+      if (a[0] < b[0] || (a[0] === b[0] && a[1] < b[1])) best = cur;
+      for (const [dx, dy] of DIRS) {
+        const nx = cur.x + dx;
+        const ny = cur.y + dy;
+        const cell = cellAt(floor, nx, ny);
+        if (!cell || cell.type !== 'floor' || cell.room !== enemy.room || seen.has(key(nx, ny)) || taken.has(key(nx, ny))) continue;
+        const node = { x: nx, y: ny, first: cur.first || { x: nx, y: ny }, dist: cur.dist + 1 };
+        seen.set(key(nx, ny), node);
+        queue.push(node);
+      }
+    }
+    return best.first;
   }
 
   // Portas fechadas e baús fechados encostados na posição dada.
@@ -530,5 +572,5 @@
     return targets;
   }
 
-  Object.assign(DC, { generateFloor, tutorialFloor, tutorialFloor2, cellAt, reach, pathTo, adjacentTargets, placeEnemies, placeSmall, placePickup, enemyAt, enemyZone, blocksRoom, DIRS });
+  Object.assign(DC, { generateFloor, tutorialFloor, tutorialFloor2, cellAt, reach, pathTo, adjacentTargets, placeEnemies, placeSmall, placePickup, enemyAt, enemyHere, inWakeZone, chaseStep, enemyZone, blocksRoom, DIRS });
 })(typeof window !== 'undefined' ? window : globalThis);
