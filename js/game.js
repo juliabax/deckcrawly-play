@@ -62,7 +62,9 @@
     // Experimento Turnos (como no Rogue): andar é de graça, cada passo é um turno e os inimigos agem depois dele.
     wakeChance: 0.67, // chance de um inimigo grande acordar quando você termina um turno na zona dele (no Rogue, 2/3)
     wakeChanceSmall: 0.33, // a de um rato (dorme mais fundo)
-    fleeStun: 2, // turnos que o inimigo fica parado depois que você foge dele
+    sightRange: 5, // até onde um inimigo acordado enxerga você (em casas, em linha reta, sem parede no meio)
+    loseTrack: 3, // turnos sem te ver até ele desistir e voltar a dormir onde está
+    fleeStun: 3, // turnos que o inimigo fica parado depois que você foge dele
     hasteTurns: 8, // Poção de velocidade: turnos em que os inimigos ficam parados
     // ♦ é mana: descartar um ♦ pelo poder dá mana igual ao número dele (até o teto). Os anéis gastam mana.
     manaMax: 10,
@@ -229,6 +231,7 @@
         for (const enemy of floor.enemies) {
           enemy.awake = false;
           enemy.stun = 0;
+          enemy.lost = 0;
         }
       }
     }
@@ -730,11 +733,9 @@
       return DC.pathTo(f, found, x, y);
     }
 
-    // Há um inimigo acordado na sala (ou na porta ao lado dela)? Aí andar vira passo a passo.
+    // Há um inimigo acordado que está te vendo agora? Aí andar vira passo a passo.
     chasers() {
-      const f = this.floor;
-      const room = f.grid[this.player.y][this.player.x].room;
-      return f.enemies.filter((e) => !e.dead && e.awake && (room === null || e.room === room || Math.abs(e.x - this.player.x) + Math.abs(e.y - this.player.y) <= 2));
+      return this.floor.enemies.filter((e) => !e.dead && e.awake && !e.lost);
     }
 
     // Um passo ou um ataque: x,y é uma casa ao lado. Devolve o que aconteceu neste turno.
@@ -796,6 +797,8 @@
         const chance = e.wake !== undefined ? e.wake : e.small ? this.config.wakeChanceSmall : this.config.wakeChance;
         if (this.wakeRng.next() < chance) {
           e.awake = true;
+          e.lost = 0;
+          e.lastSeen = { x: hero.x, y: hero.y };
           result.woke.push(e.id);
           this.log(e.small ? 'Um rato acorda e corre atrás de você!' : 'Um inimigo acorda e vem atrás de você!', 'bad');
         }
@@ -805,6 +808,7 @@
         this.hasteTurns--;
         return result;
       }
+      result.lost = result.lost || [];
       for (const e of f.enemies) {
         if (e.dead || !e.awake || result.woke.includes(e.id)) continue;
         if (e.stun > 0) {
@@ -812,11 +816,27 @@
           continue;
         }
         const dist = () => Math.abs(e.x - hero.x) + Math.abs(e.y - hero.y);
+        // Vendo você, ele guarda onde você está; sem ver, vai até o último lugar onde viu e, se não te achar em
+        // `loseTrack` turnos, desiste e volta a dormir ali mesmo.
+        if (DC.canSee(f, e.x, e.y, hero.x, hero.y, this.config.sightRange)) {
+          e.lastSeen = { x: hero.x, y: hero.y };
+          e.lost = 0;
+        } else if (++e.lost > this.config.loseTrack) {
+          e.awake = false;
+          e.lost = 0;
+          e.lastSeen = null;
+          result.lost.push(e.id);
+          this.log('Um inimigo perde você de vista e volta a dormir.', 'good');
+          continue;
+        }
         if (dist() > 1) {
-          const next = DC.chaseStep(f, e, hero);
+          const goal = e.lastSeen || hero;
+          const next = e.x === goal.x && e.y === goal.y ? null : DC.chaseStep(f, e, goal, hero);
           if (next) {
             e.x = next.x;
             e.y = next.y;
+            const cell = DC.cellAt(f, next.x, next.y);
+            if (cell.type !== 'door') e.room = cell.room;
             result.moved_enemies.push(e.id);
           }
         }
@@ -833,6 +853,7 @@
     // Começa o combate com um inimigo (que, lutando, já está acordado).
     engage(enemy) {
       enemy.awake = true;
+      enemy.lost = 0;
       this.pending = { type: 'combat', enemyId: enemy.id };
       this.log('Combate! O inimigo está em cima de você.', 'bad');
       this.startCombatEffects(enemy);
@@ -1135,6 +1156,8 @@
       this.spent.flee++;
       if (card.suit === 'S') this.spent.spadeOther++;
       enemy.awake = true;
+      enemy.lost = 0;
+      enemy.lastSeen = { x: this.player.x, y: this.player.y };
       enemy.stun = this.config.fleeStun;
       this.pending = null;
       this.log(`Você foge descartando ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[card.suit]}. O inimigo fica parado por ${enemy.stun} turnos.`);

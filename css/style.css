@@ -2989,6 +2989,10 @@ body.shake main {
   pointer-events: none;
 }
 
+.tile.t-enemy.searching .alert {
+  background: var(--warn, #d99a2b);
+}
+
 .tile.t-enemy.awake::before {
   background: rgba(214, 70, 70, 0.75);
   animation: awake-pulse 0.9s ease-in-out infinite;

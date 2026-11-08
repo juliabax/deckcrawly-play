@@ -2001,23 +2001,31 @@
           let cls = 't-void';
           let inner = '';
           let title = '';
+          const enemyOn = shown ? (f.enemies || []).find((e) => !e.dead && e.x === x && e.y === y) : null;
+          const enemyMarkup = (enemy) => {
+            const left = remainingEnemyCards(enemy);
+            const facedown = left.filter((c) => isHiddenCard(enemy, c)).length;
+            const state = !enemy.awake ? 'Dormindo: chegar perto na zona vermelha pode acordá-lo' : enemy.lost ? 'Procurando você: perdeu você de vista e vai desistir se não te achar' : 'Acordado: vem atrás de você';
+            return {
+              cls: enemy.awake ? ` t-enemy awake${enemy.lost ? ' searching' : ''}` : ' t-enemy zone sleeping',
+              inner:
+                (enemy.kind === 'rat' ? RAT_SVG : art ? `<i class="sprite enemy-sprite k-${enemy.kind}"></i>` : ENEMY_SVG) +
+                `<span class="enemy-cards${left.length > 2 ? ' many' : ''}">${left.map((c) => (isHiddenCard(enemy, c) ? MINI_BACK : miniHTML(c))).join('')}</span>` +
+                (!enemy.awake ? '<span class="zzz">z</span>' : `<span class="alert">${enemy.lost ? '?' : '!'}</span>`),
+              title: `${state} (${left.length} carta${left.length === 1 ? '' : 's'}${facedown ? `, ${facedown} virada${facedown === 1 ? '' : 's'}` : ''}). Toque nele para atacar`,
+            };
+          };
           switch (shown ? cell.type : 'void') {
             case 'wall':
               cls = 't-wall';
               break;
             case 'floor': {
               cls = `t-floor${alt}${treasure}`;
-              const enemy = (f.enemies || []).find((e) => !e.dead && e.x === x && e.y === y);
-              if (enemy) {
-                const left = remainingEnemyCards(enemy);
-                cls += enemy.awake ? ' t-enemy awake' : ' t-enemy zone sleeping';
-                const facedown = left.filter((c) => isHiddenCard(enemy, c)).length;
-                inner =
-                  (enemy.kind === 'rat' ? RAT_SVG : art ? `<i class="sprite enemy-sprite k-${enemy.kind}"></i>` : ENEMY_SVG) +
-                  `<span class="enemy-cards${left.length > 2 ? ' many' : ''}">${left.map((c) => (isHiddenCard(enemy, c) ? MINI_BACK : miniHTML(c))).join('')}</span>`;
-                title = `${enemy.awake ? 'Acordado: vem atrás de você' : 'Dormindo: chegar perto na zona vermelha pode acordá-lo'} (${left.length} carta${left.length === 1 ? '' : 's'}${facedown ? `, ${facedown} virada${facedown === 1 ? '' : 's'}` : ''}). Toque nele para atacar`;
-                if (!enemy.awake) inner += '<span class="zzz">z</span>';
-                else inner += '<span class="alert">!</span>';
+              if (enemyOn) {
+                const m = enemyMarkup(enemyOn);
+                cls += m.cls;
+                inner = m.inner;
+                title = m.title;
               } else if ((f.enemies || []).some((e) => DC.inWakeZone(e, cell, x, y))) {
                 cls += ' zone';
                 title = 'Zona de um inimigo dormindo: terminar um turno aqui pode acordá-lo';
@@ -2042,6 +2050,12 @@
               cls = 't-floor start';
               inner = art ? '' : STAIR_UP_SVG; // com a arte, a peça da escada já vem no fundo da casa
               title = 'Escada de entrada (você desceu por aqui)';
+              if (enemyOn) {
+                const m = enemyMarkup(enemyOn);
+                cls += m.cls;
+                inner += m.inner;
+                title = m.title;
+              }
               break;
             case 'exit':
               cls = 't-floor exit';
@@ -2053,6 +2067,12 @@
               cls = `t-door ${d.orient}${d.open ? ' open' : ''}${justOpened(d.open)}`;
               inner = d.open ? '' : miniHTML(d.cost);
               title = d.open ? 'Porta aberta' : `Porta: custo ${DC.rankLabel(d.cost.rank)}`;
+              if (enemyOn) {
+                const m = enemyMarkup(enemyOn);
+                cls += m.cls;
+                inner += m.inner;
+                title = m.title;
+              }
               break;
             }
             case 'chest': {
@@ -3107,7 +3127,7 @@
         <h4>Zoom</h4>
         <p>Os botões + e − no canto do mapa (ou as teclas + e −) aproximam e afastam. O zoom tem tamanhos fixos (100% = casas de 40 px, sempre igual), de 60% a 300%. Quando o mapa passa da tela, ele acompanha o seu personagem. Para olhar outras salas, <b>arraste o mapa</b> (em qualquer ponto, inclusive na parte escura). O botão ◎ ao lado do zoom (ou a tecla C) volta para o personagem, e a câmera também volta sozinha quando ele anda.</p>
         <h4>Inimigos</h4>
-        <p>Os inimigos <b>começam dormindo</b>. Se você termina um turno na <b>zona vermelha</b> ao redor de um (1 casa, e uns 30% têm 2), ele pode <b>acordar</b>: cerca de 2 em 3 para os grandes e 1 em 3 para os ratos. Acordado, ele <b>anda uma casa por turno atrás de você</b>, sempre dentro da sala dele (não abre portas), e quando encosta começa o <b>combate</b>. Você também pode atacar um que dorme, tocando nele. Há <b>ratos</b>: inimigos pequenos de <b>1 carta baixa</b> (1 a 5), que rendem menos (às vezes uma Maçã). Os grandes têm <b>2 cartas</b> (<b>3 nos andares mais fundos</b>): cada uma é como o custo de uma porta, mas <b>em alguns (cerca de 1 em 4) uma delas começa virada de costas</b> e só aparece quando você derruba outra. No combate, escolha cartas da mão cuja soma seja pelo menos o custo de uma carta dele e derrube-a (soma exata compra 1 carta); o poder de ♥ funciona ali e o ♠ vale o dobro. Derrotando todas as cartas você vence e compra 1 carta. Dá para <b>fugir</b> descartando 1 carta: o inimigo fica parado por 2 turnos, dando tempo de se afastar (as cartas já derrubadas continuam derrubadas), mas se for a sua última carta você perde.</p>
+        <p>Os inimigos <b>começam dormindo</b>. Se você termina um turno na <b>zona vermelha</b> ao redor de um (1 casa, e uns 30% têm 2), ele pode <b>acordar</b>: cerca de 2 em 3 para os grandes e 1 em 3 para os ratos. Acordado, ele <b>anda uma casa por turno atrás de você</b>, <b>até em outras salas</b> (passa por portas que você já abriu, mas não abre as fechadas), e quando encosta começa o <b>combate</b>. Ele te segue enquanto <b>te vê</b> (uns 5 casas, sem parede no meio; da porta ele só vê em linha reta). Se você sai da vista, ele vai até o último lugar onde te viu (<b>?</b>) e, depois de uns 3 turnos sem te achar, <b>desiste e volta a dormir</b>. Descer a escada também escapa. Você também pode atacar um que dorme, tocando nele. Há <b>ratos</b>: inimigos pequenos de <b>1 carta baixa</b> (1 a 5), que rendem menos (às vezes uma Maçã). Os grandes têm <b>2 cartas</b> (<b>3 nos andares mais fundos</b>): cada uma é como o custo de uma porta, mas <b>em alguns (cerca de 1 em 4) uma delas começa virada de costas</b> e só aparece quando você derruba outra. No combate, escolha cartas da mão cuja soma seja pelo menos o custo de uma carta dele e derrube-a (soma exata compra 1 carta); o poder de ♥ funciona ali e o ♠ vale o dobro. Derrotando todas as cartas você vence e compra 1 carta. Dá para <b>fugir</b> descartando 1 carta: o inimigo fica parado por 3 turnos, dando tempo de sair da vista dele (as cartas já derrubadas continuam derrubadas), mas se for a sua última carta você perde.</p>
         <h4>Pergaminho de Inventário</h4>
         <p>Cada inimigo tem <b>30% de chance</b> de deixar um pergaminho <b>no lugar da carta de vitória</b>, e <b>30% dos baús</b> o guardam <b>no lugar das cartas</b>. Você já começa com <b>1 slot de brinde</b>, e cada pergaminho abre mais um (até 3 no total) ao lado da mão, onde você <b>guarda cartas</b> para usar depois. Para guardar, escolha 1 carta da mão e toque num slot livre (no baú, marque a carta e toque no slot: ela é guardada em vez de descartada). Toque na carta guardada para devolvê-la à mão. Guardar e devolver é grátis, a qualquer momento, até em combate, mas para <b>usar</b> a carta ela precisa estar na mão (o limite de 7 continua). Se a mão esvaziar mas houver cartas nos slots, você ainda não perdeu.</p>
         <h4>No iPad (toque)</h4>

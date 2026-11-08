@@ -526,33 +526,69 @@
     return !enemy.dead && !enemy.awake && inZone(enemy, cell, x, y);
   }
 
-  // Próximo passo de um inimigo acordado que persegue `target`: ele só anda dentro da sala dele, por casas livres
-  // (nada de portas, baús, escadas ou outros inimigos). Vai para a casa alcançável mais perto de quem persegue.
-  // Devolve a casa do passo, ou null se já está na melhor casa.
-  function chaseStep(floor, enemy, target) {
+  // Casas por onde um inimigo anda: chão, a escada de entrada e portas JÁ ABERTAS (nunca a saída, baús ou portas
+  // fechadas: inimigo não abre porta).
+  function enemyCanEnter(floor, cell) {
+    return Boolean(cell) && (cell.type === 'floor' || cell.type === 'start' || (cell.type === 'door' && floor.doors[cell.ref].open));
+  }
+
+  // Quem está em (ax,ay) enxerga (bx,by)? Vale até `range` casas (em linha reta, a maior distância dos dois eixos) e
+  // a linha entre os dois não pode cruzar parede, baú ou porta fechada. Sala é iluminada (como no Rogue); pela porta
+  // aberta dá para ver a sala do lado, mas só em linha.
+  function canSee(floor, ax, ay, bx, by, range) {
+    const dx = bx - ax;
+    const dy = by - ay;
+    const n = Math.max(Math.abs(dx), Math.abs(dy));
+    if (n > range) return false;
+    // Da porta, ele só enxerga em linha reta pelo vão: a sala do lado fica escondida se você sair do eixo.
+    const here = cellAt(floor, ax, ay);
+    if (here && here.type === 'door') {
+      const d = floor.doors[here.ref];
+      if (d.orient === 'v' ? dy !== 0 : dx !== 0) return false;
+    }
+    for (let i = 1; i < n; i++) {
+      const x = Math.round(ax + (dx * i) / n);
+      const y = Math.round(ay + (dy * i) / n);
+      const cell = cellAt(floor, x, y);
+      if (!cell) return false;
+      const open = cell.type === 'floor' || cell.type === 'start' || cell.type === 'exit' || (cell.type === 'door' && floor.doors[cell.ref].open);
+      if (!open) return false;
+    }
+    return true;
+  }
+
+  // Próximo passo de um inimigo acordado rumo a `goal` (onde viu você pela última vez): o caminho mais curto pelas
+  // casas por onde ele pode andar, que atravessa portas abertas e vai de sala em sala. Não pisa em outro inimigo nem
+  // em `hero`. Devolve a casa do passo, ou null se ele já chegou, não há caminho ou o caminho está tomado.
+  function chaseStep(floor, enemy, goal, hero) {
     const key = (x, y) => y * floor.w + x;
-    const taken = new Set((floor.enemies || []).filter((o) => !o.dead && o !== enemy).map((o) => key(o.x, o.y)));
-    taken.add(key(target.x, target.y));
-    const seen = new Map([[key(enemy.x, enemy.y), { x: enemy.x, y: enemy.y, first: null, dist: 0 }]]);
-    const queue = [seen.get(key(enemy.x, enemy.y))];
-    let best = seen.get(key(enemy.x, enemy.y));
-    const score = (n) => [Math.abs(n.x - target.x) + Math.abs(n.y - target.y), n.dist];
-    while (queue.length) {
+    const dist = new Map([[key(goal.x, goal.y), 0]]);
+    const queue = [{ x: goal.x, y: goal.y }];
+    const start = key(enemy.x, enemy.y);
+    while (queue.length && !dist.has(start)) {
       const cur = queue.shift();
-      const a = score(cur);
-      const b = score(best);
-      if (a[0] < b[0] || (a[0] === b[0] && a[1] < b[1])) best = cur;
+      const d = dist.get(key(cur.x, cur.y));
       for (const [dx, dy] of DIRS) {
         const nx = cur.x + dx;
         const ny = cur.y + dy;
-        const cell = cellAt(floor, nx, ny);
-        if (!cell || cell.type !== 'floor' || cell.room !== enemy.room || seen.has(key(nx, ny)) || taken.has(key(nx, ny))) continue;
-        const node = { x: nx, y: ny, first: cur.first || { x: nx, y: ny }, dist: cur.dist + 1 };
-        seen.set(key(nx, ny), node);
-        queue.push(node);
+        if (dist.has(key(nx, ny)) || !enemyCanEnter(floor, cellAt(floor, nx, ny))) continue;
+        dist.set(key(nx, ny), d + 1);
+        queue.push({ x: nx, y: ny });
       }
     }
-    return best.first;
+    if (!dist.has(start)) return null;
+    let best = null;
+    let bestDist = dist.get(start);
+    for (const [dx, dy] of DIRS) {
+      const nx = enemy.x + dx;
+      const ny = enemy.y + dy;
+      const d = dist.get(key(nx, ny));
+      if (d === undefined || d >= bestDist) continue;
+      if ((hero && hero.x === nx && hero.y === ny) || enemyHere(floor, nx, ny)) continue;
+      best = { x: nx, y: ny };
+      bestDist = d;
+    }
+    return best;
   }
 
   // Portas fechadas e baús fechados encostados na posição dada.
@@ -572,5 +608,5 @@
     return targets;
   }
 
-  Object.assign(DC, { generateFloor, tutorialFloor, tutorialFloor2, cellAt, reach, pathTo, adjacentTargets, placeEnemies, placeSmall, placePickup, enemyAt, enemyHere, inWakeZone, chaseStep, enemyZone, blocksRoom, DIRS });
+  Object.assign(DC, { generateFloor, tutorialFloor, tutorialFloor2, cellAt, reach, pathTo, adjacentTargets, placeEnemies, placeSmall, placePickup, enemyAt, enemyHere, inWakeZone, chaseStep, canSee, enemyCanEnter, enemyZone, blocksRoom, DIRS });
 })(typeof window !== 'undefined' ? window : globalThis);
