@@ -41,7 +41,7 @@
   // Ícone de pergaminho enrolado (slot bloqueado).
   const SCROLL_SVG = `<svg class="scroll-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h11a2 2 0 0 1 2 2V16a3 3 0 0 0 3 3H9a3 3 0 0 1-3-3V5a1.5 1.5 0 0 1 1-1.5z" fill="#e8dcc0" stroke="#6b4e22" stroke-width="1.3" stroke-linejoin="round" /><path d="M6 5a2 2 0 1 0-2 2h2M9 19a3 3 0 0 1-3-3" fill="none" stroke="#6b4e22" stroke-width="1.3" stroke-linecap="round" /><path d="M10 8h7M10 11h7M10 14h5" stroke="#a88a52" stroke-width="1.2" stroke-linecap="round" /></svg>`;
 
-  // Comida do experimento Baralho Finito: Maçã (3 cartas novas) e Bife (5), desenhadas no mesmo estilo dos outros ícones.
+  // Comida do experimento Baralho Finito: Maçã (2 cartas novas) e Bife (3), desenhadas no mesmo estilo dos outros ícones.
   const APPLE_SVG = `<svg class="food-ico apple" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7.5c-2.2-1.7-6.2-1.3-7.3 2.3C3.5 13.6 6 20.4 9 20.8c1 .1 1.9-.5 3-.5s2 .6 3 .5c3-.4 5.5-7.200 4.300-11C18.200 6.200 14.200 5.800 12 7.500z" fill="#d6403a" stroke="#5e1a17" stroke-width="1.3" stroke-linejoin="round" /><path d="M12 7.500c0-2 .8-3.400 2.300-4.300" fill="none" stroke="#5b3a1e" stroke-width="1.5" stroke-linecap="round" /><path d="M13.200 4.800c1.500-1.300 3.500-1 4.100-.5-.4 1.600-2.300 2.400-4.100.5z" fill="#62b04f" stroke="#2f6b2a" stroke-width="1" stroke-linejoin="round" /><path d="M7.800 10.500c.3-1 1.100-1.700 2-1.800" fill="none" stroke="#f7a8a0" stroke-width="1.300" stroke-linecap="round" /></svg>`;
   const STEAK_SVG = `<svg class="food-ico steak" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.800 11.500C3.200 7.700 6.200 4.700 10.200 4.200c3.800-.5 7.800 1 9.400 4.300 1.400 3-.1 6.700-2.900 8.500-3.100 2-8.200 1.800-10.700-1.300-.9-1-1.600-2.300-2.200-4.200z" fill="#f4cfc4" stroke="#612620" stroke-width="1.300" stroke-linejoin="round" /><path d="M6.200 11.200c-.3-2.800 1.800-4.900 4.800-5.200 2.800-.3 5.700.8 6.900 3.200.9 2.200 0 4.800-2 6-2.400 1.400-6.200 1.200-7.900-.9-.9-.9-1.600-2-1.800-3.100z" fill="#b53c34" /><path d="M8.700 9.300l5.200 4.400M10.800 7.700l5.200 4.400" fill="none" stroke="#7c201c" stroke-width="1.200" stroke-linecap="round" /><circle cx="8.800" cy="14.200" r="1.500" fill="#f3e6cf" stroke="#86704a" stroke-width=".8" /></svg>`;
   const FOOD_SVG = { normal: APPLE_SVG, gold: STEAK_SVG };
@@ -119,6 +119,7 @@
         toast: $('toast'),
         floor: $('hud-floor'),
         turn: $('hud-turn'),
+        hunger: $('hud-hunger'),
         seed: $('hud-seed'),
         fx: $('fx'),
         stash: $('stash'),
@@ -1510,6 +1511,19 @@
       const g = this.game;
       this.el.floor.textContent = `Andar ${g.floorNo} / ${g.config.floors}`;
       this.el.turn.textContent = `Turno ${g.turn}`;
+      if (g.starved > (this.lastStarved || 0) && !g.tutorial) {
+        this.toast('Fome! Uma carta do deck queimou.');
+        this.sound('hit');
+      }
+      this.lastStarved = g.starved;
+      if (this.el.hunger) {
+        const every = g.config.hungerEvery;
+        const left = every ? every - g.hunger : 0;
+        this.el.hunger.hidden = g.tutorial || !every;
+        this.el.hunger.textContent = `Fome em ${left}`;
+        this.el.hunger.classList.toggle('hungry', left <= g.config.hungerWarn);
+        this.el.hunger.title = `A cada ${every} turnos você perde 1 carta de fome (a do topo do deck). Faltam ${left} turnos.`;
+      }
       this.el.seed.textContent = g.tutorial ? 'treino' : `seed ${g.seed}`;
       this.renderPiles();
       this.renderHand();
@@ -3125,10 +3139,11 @@
         <h4>Cartas</h4>
         <ul>
           <li><b>Andar é de graça</b>, por turnos (como no Rogue): toque numa casa e o personagem vai passo a passo (ou use as setas do teclado). Só anda na vertical e horizontal. <b>Cada passo é um turno</b>, e abrir uma porta ou um baú também passa um turno. Depois do seu turno os inimigos agem.</li>
+          <li><b>Fome</b> (o relógio contra enrolar): a cada <b>30 turnos</b> a carta do topo do deck <b>queima</b> e vai para o cemitério (sem deck, a menor da mão). O contador "Fome em N" fica no topo e pisca quando faltam 5. Comer <b>não zera</b> o relógio: explore com pressa, sem enrolar.</li>
           <li><b>Abrir portas e baús:</b> fique ao lado, selecione cartas cuja soma seja pelo menos o custo. <b>Soma exata</b> compra ${this.game.config.exactBonus} carta de graça; se a soma exata for paga com <b>2 ou mais cartas do mesmo naipe</b>, compra ${this.game.config.flushBonus}. Soma maior apenas abre.</li>
           <li><b>Baú:</b> mostra 5 cartas do seu deck, você leva até 2 e o resto volta ao deck. Todo baú guarda um prêmio. O que <b>custa cartas</b> é o grande: um <b>anel</b> (metade das vezes) ou, senão, um <b>Bife</b> garantido. O <b>destrancado</b> (marcado "grátis") abre sem gastar cartas e dá uma <b>Maçã</b> (em um a cada quatro, um anel).
           <li>Toda carta usada vai para o <b>cemitério</b> (o descarte) e <b>nunca volta</b> ao deck. Toque na pilha para ver o que já foi.</li>
-          <li><b>Comida</b> (<b>Maçã</b> acrescenta <b>3 cartas novas</b> ao deck e <b>Bife</b>, 5), achada no chão, com inimigos e em baús: você come e as cartas entram em posições aleatórias. São sorteadas como se saíssem de um baralho completo, então o seu deck pode ficar com mais de um naipe, ou com cartas repetidas.</li>
+          <li><b>Comida</b> (<b>Maçã</b> acrescenta <b>2 cartas novas</b> ao deck e <b>Bife</b>, 3), achada no chão, com inimigos e em baús: você come e as cartas entram em posições aleatórias. São sorteadas como se saíssem de um baralho completo, então o seu deck pode ficar com mais de um naipe, ou com cartas repetidas.</li>
         </ul>
         <h4>Poderes (o número da carta é a intensidade)</h4>
         <ul>

@@ -33,8 +33,8 @@
     scrollChance: 0.3, // chance de um inimigo (no lugar da carta de vitória) ou de um baú (no lugar das cartas) dar um pergaminho
     // Experimento Baralho Finito: carta gasta não volta. A comida (Maçã e Bife) acrescenta cartas NOVAS
     // (sorteadas como se saíssem de um baralho completo) em posições aleatórias do deck.
-    reinforceCards: 3, // cartas da Maçã
-    reinforceGoldCards: 5, // cartas do Bife
+    reinforceCards: 2, // cartas da Maçã (era 3: o relatório do playtest 4 mostrou comida demais, venceu com 28 cartas sobrando)
+    reinforceGoldCards: 3, // cartas do Bife (era 5)
     reinforceEnemyBase: 0.1, // chance de um inimigo deixar o pergaminho: este valor mais perPoint × soma das cartas dele
     reinforceEnemyPerPoint: 0.015,
     reinforceGoldEnemy: 0.25, // chance de ser dourado, para inimigos de 3 cartas ou mais
@@ -48,7 +48,7 @@
     ratsMin: 2, // por andar
     ratsMax: 3,
     ratRankMax: 5, // a carta do rato vai de 1 a este valor
-    ratFoodChance: 0.25, // chance de um rato derrotado deixar uma Maçã (os outros inimigos dependem das cartas deles)
+    ratFoodChance: 0.1, // chance de um rato derrotado deixar uma Maçã (os outros inimigos dependem das cartas deles)
     itemDropChanceSmall: 0.15, // chance de um rato deixar uma poção ou pergaminho da bolsa
     // Anéis: equipamento com 2 espaços; vêm de baús e de inimigos (mais difíceis, mais chance).
     ringSlots: 2,
@@ -62,6 +62,8 @@
     // Experimento Turnos (como no Rogue): andar é de graça, cada passo é um turno e os inimigos agem depois dele.
     wakeChance: 0.67, // chance de um inimigo grande acordar quando você termina um turno na zona dele (no Rogue, 2/3)
     wakeChanceSmall: 0.33, // a de um rato (dorme mais fundo)
+    hungerEvery: 30, // FOME: a cada tantos turnos a carta do topo do deck queima (sem deck, a menor carta da mão). 0 desliga
+    hungerWarn: 5, // avisa quando faltam tantos turnos
     sightRange: 9, // até onde um inimigo acordado enxerga você (em casas, em linha reta, sem parede no meio)
     loseTrack: 3, // turnos sem te ver até ele desistir e voltar a dormir onde está
     fleeStun: 3, // turnos que o inimigo fica parado depois que você foge dele
@@ -138,6 +140,8 @@
       // Turnos e mana (experimento Turnos): cada passo e cada porta aberta é 1 turno.
       this.turn = 0;
       this.steps = 0; // passos dados (só para o relatório)
+      this.hunger = 0; // turnos desde a última carta queimada pela fome
+      this.starved = 0; // cartas queimadas pela fome (relatório)
       this.turnsByFloor = {};
       this.mana = 0;
       this.manaGained = 0;
@@ -802,6 +806,7 @@
     passTurn(result = {}) {
       this.turn++;
       this.turnsByFloor[this.floorNo] = (this.turnsByFloor[this.floorNo] || 0) + 1;
+      this.tickHunger(result);
       if (this.status !== 'playing' || this.pending) return result;
       const f = this.floor;
       const hero = this.player;
@@ -865,6 +870,29 @@
         }
       }
       return result;
+    }
+
+    // FOME (o relógio contra enrolar, como no Rogue): a cada `hungerEvery` turnos a carta do topo do deck queima
+    // e vai para o cemitério. Sem cartas no deck, queima a menor da mão. Comer não zera o relógio.
+    tickHunger(result = {}) {
+      const every = this.config.hungerEvery;
+      if (this.tutorial || !every || this.status !== 'playing') return;
+      this.hunger++;
+      if (this.hunger < every) {
+        if (every - this.hunger === this.config.hungerWarn) this.log(`Sua barriga ronca: em ${this.config.hungerWarn} turnos você perde uma carta de fome.`, 'bad');
+        return;
+      }
+      this.hunger = 0;
+      let card = this.playerDeck.pop();
+      if (!card && this.hand.length) {
+        card = this.hand.reduce((low, c) => (c.rank < low.rank ? c : low));
+        this.hand = this.hand.filter((c) => c !== card);
+      }
+      if (!card) return;
+      this.discard.push(card);
+      this.starved++;
+      result.starved = card;
+      this.log(`Fome! ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[card.suit]} queima: uma carta a menos.`, 'bad');
     }
 
     // Começa o combate com um inimigo (que, lutando, já está acordado).

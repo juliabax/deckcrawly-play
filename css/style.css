@@ -3041,3 +3041,15 @@ body.shake main {
 .power-btn.gold b {
   color: #ff9a52;
 }
+
+/* fome: contagem regressiva até queimar uma carta */
+.pill.hungry {
+  background: rgba(214, 70, 70, 0.28);
+  border-color: rgba(214, 70, 70, 0.7);
+  color: #ffd6d2;
+  animation: awake-pulse 0.9s ease-in-out infinite;
+}
+
+.no-fx .pill.hungry {
+  animation: none;
+}

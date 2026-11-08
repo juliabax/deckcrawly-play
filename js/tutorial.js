@@ -548,6 +548,7 @@
     if (game.spent) {
       const sp = game.spent;
       lines.push(
+        `Fome: ${game.starved || 0} cartas queimadas (a cada ${game.config.hungerEvery} turnos)`,
         `Cartas gastas por tipo: portas e baús ${sp.open} · combate ${sp.attack} · poder (♥ e ♦) ${sp.power} · fuga ${sp.flee} · dardos ${sp.trap}`,
       );
       lines.push(`♠ gastos: ${sp.spadeAttack} em combate (valem o número ou o dobro) · ${sp.spadeOther} fora do combate (portas, poder, fuga: o dobro se perde)`);
