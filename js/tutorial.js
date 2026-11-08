@@ -150,7 +150,7 @@
         scenes: [
           {
             focus: 'hand',
-            lines: ['Espadas ♠ são as cartas de combate: valem o número ou o dobro quando você luta.', 'Assim casam com dois valores. E uma só espada pode derrubar várias cartas do inimigo, se o valor dobrado cobrir todas.'],
+            lines: ['No combate você soma cartas da sua mão contra cartas abertas do inimigo: se as somas forem iguais, as cartas dele caem.', 'Espadas ♠ valem o número ou o dobro, então casam com dois valores. Um ♠4 vale 4 ou 8.'],
           },
         ],
       },
@@ -190,7 +190,7 @@
         body: `<p>Uma carta sozinha também pode ativar o <b>poder do naipe</b> (o número é a intensidade):</p>
           <ul>
             <li><b>♥ Copas:</b> compra até N cartas (a mão vai até 5).</li>
-            <li><b>♠ Espadas:</b> em combate vale o número ou o dobro e derruba várias cartas do inimigo.</li>
+            <li><b>♠ Espadas:</b> em combate vale o número ou o dobro, e casa com dois valores.</li>
             <li><b>♦ Ouros:</b> <b>mana</b>: vira mana igual ao número, que paga o uso dos anéis.</li>
             <li><b>♣ Paus:</b> <b>coringa</b>. Vale o próprio número ou copia o de outra carta da mão.</li>
           </ul>
@@ -227,7 +227,7 @@
       },
       lowdeck: {
         title: 'Deck acabando',
-        body: 'Seu deck é a sua <b>vida</b> e carta usada <b>não volta</b>. Gaste com cuidado: acertar a <b>soma exata</b> compra cartas e a <b>comida</b> (Maçã e Bife) acrescenta cartas novas ao deck.',
+        body: 'Seu deck é a sua <b>vida</b> e carta usada <b>não volta</b>. Gaste com cuidado: acertar a <b>soma exata</b> de portas compra cartas e a <b>comida</b> (Maçã e Bife) acrescenta cartas novas ao deck.',
       },
     },
 
@@ -240,8 +240,8 @@
     lossHints: {
       handOut: 'Lembre-se de usar cartas de copas ♥ para repor sua mão!',
       deckOut: 'Seu deck zerou! Carta usada não volta: gaste com cuidado e procure comida (Maçã e Bife) pela masmorra.',
-      flee: 'Fugir custa uma carta. Com a mão curta, vale mais não acordar o inimigo ou lutar pela soma exata.',
-      combat: 'Em combate, use espadas ♠: elas valem o número ou o dobro e uma só pode derrubar várias cartas do inimigo. A soma exata compra 1 carta!',
+      flee: 'Fugir custa uma carta. Com a mão curta, vale mais não acordar o inimigo ou lutar só com somas exatas.',
+      combat: 'Em combate só a soma exata derruba: iguale a soma das suas cartas à das cartas abertas dele (espadas ♠ valem o número ou o dobro). Preso? Troque 1 carta por 1: a diferença queima cartas do seu deck.',
       fallback: 'Carta usada não volta. Explore com calma (andar é de graça), mas gaste as cartas com cuidado.',
     },
 
@@ -549,6 +549,7 @@
       const sp = game.spent;
       lines.push(
         `Fome: ${game.starved || 0} cartas queimadas (a cada ${game.config.hungerEvery} turnos)`,
+        `Trocas em combate: ${game.traded || 0} (dano: ${sp.damage || 0} cartas queimadas do deck)`,
         `Cartas gastas por tipo: portas e baús ${sp.open} · combate ${sp.attack} · poder (♥ e ♦) ${sp.power} · fuga ${sp.flee} · dardos ${sp.trap}`,
       );
       lines.push(`♠ gastos: ${sp.spadeAttack} em combate (valem o número ou o dobro) · ${sp.spadeOther} fora do combate (portas, poder, fuga: o dobro se perde)`);

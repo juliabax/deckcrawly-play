@@ -62,5 +62,21 @@
     return rng;
   }
 
-  Object.assign(DC, { SUITS, SUIT_SYMBOL, SUIT_NAME, rankLabel, makeDeck, makeRng });
+  // Formação das cartas de um inimigo: `rows` é a lista de filas (ids), da FRENTE para trás. Cada carta de uma fila de
+  // trás fica coberta pelas cartas da fila logo à frente que a tocam na horizontal (cada fila ocupa a largura toda,
+  // dividida em partes iguais). Devolve { idDaCarta: [ids que a cobrem] } só com as cartas que têm alguma na frente.
+  function coverOf(rows) {
+    const cover = {};
+    for (let r = 1; r < rows.length; r++) {
+      const m = rows[r].length;
+      const p = rows[r - 1].length;
+      rows[r].forEach((id, j) => {
+        const over = rows[r - 1].filter((_, i) => Math.min((j + 1) / m, (i + 1) / p) - Math.max(j / m, i / p) > 1e-9);
+        if (over.length) cover[id] = over;
+      });
+    }
+    return cover;
+  }
+
+  Object.assign(DC, { SUITS, SUIT_SYMBOL, SUIT_NAME, rankLabel, makeDeck, makeRng, coverOf });
 })(typeof window !== 'undefined' ? window : globalThis);

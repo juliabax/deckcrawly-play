@@ -315,7 +315,8 @@
       wake: 1, // no treino ele sempre acorda quando você chega perto
       kind: 'skeleton1',
       cards,
-      hidden: [],
+      rows: [cards.map((c) => c.id)], // as duas cartas na frente: nada travado
+      cover: {},
       down: [],
       dead: false,
       scroll: false,

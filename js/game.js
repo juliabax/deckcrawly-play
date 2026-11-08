@@ -8,6 +8,7 @@
     chestPicks: 2,
     refillDraw: 1, // cartas compradas ao DESCER de andar (sempre respeitando handMax). Abrir a porta de uma sala nova não dá carta por si só
     exactBonus: 1, // cartas de graça ao abrir uma porta ou baú com soma exata
+    matchDraw: 0, // cartas de graça a cada soma exata em combate (0: a soma exata já é o jeito normal de derrubar cartas; só a vitória compra)
     flushBonus: 2, // ... e quando a soma exata é paga com 2 ou mais cartas do mesmo naipe
     roomsMin: 4,
     roomsMax: 6,
@@ -16,14 +17,14 @@
     enemyCards: 2, // cartas de um inimigo comum (cada uma funciona como o custo de uma porta)
     enemyDeepCards: 3, // cartas de um inimigo dos andares mais fundos
     enemyDeepFloor: 4, // a partir deste andar aparecem os de enemyDeepCards
+    enemyFinalCards: 4, // cartas de um inimigo do último andar (enemyFinalFloor): quanto mais cartas, mais cartas travadas atrás das abertas
+    enemyFinalFloor: 5, // a partir deste andar os inimigos têm enemyFinalCards cartas
     enemyMaxPerFloor: 3, // no máximo tantos inimigos por andar
     enemyShare: 1, // fração das sobras do deck da dungeon que vira inimigos (1 = todas)
     enemyRamp: 9, // mistura das cartas entre os andares: 0 = os andares de cima só pegam as mais baixas; quanto maior, mais misturado
     enemyRange: 1, // zona de ataque: casas em cruz ao redor dele
     enemyWideChance: 0.3, // chance de um inimigo ter o alcance maior (enemyWideRange) e tentar trancar a sala
     enemyWideRange: 2,
-    enemyHidden: 1, // cartas viradas de costas num inimigo que tem carta virada (aparecem quando você derruba outra)
-    enemyHiddenChance: 0.25, // chance de um inimigo ter carta virada: rara, para o ♠ ter 2 cartas à vista para atacar de uma vez
     // Pergaminho de Inventário: cada um abre 1 slot ao lado da mão, onde se guardam cartas.
     maxSlots: 3,
     startSlots: 1, // slots de inventário já liberados no começo (de brinde)
@@ -128,20 +129,21 @@
       this.owed = []; // pergaminhos achados que esperam a janela atual fechar
       this.reinforced = 0; // total de cartas ganhas por pergaminhos (para o relatório)
       this.trapRng = DC.makeRng(`${this.seed}:traps`);
-      this.hiddenRng = DC.makeRng(`${this.seed}:hidden`); // quais inimigos têm carta virada
+      this.formRng = DC.makeRng(`${this.seed}:formation`); // quais cartas do inimigo ficam na frente
       this.ringRng = DC.makeRng(`${this.seed}:rings`); // quais baús e inimigos deixam anel, e qual
       this.ratRng = DC.makeRng(`${this.seed}:rats`); // ratos: quantos, onde e que carta
       this.ratCount = 0;
       this.chestRng = DC.makeRng(`${this.seed}:chests`); // quais baús são destrancados (grátis)
       this.ringCount = 0;
       // Para onde as cartas vão (só para o relatório): andar, portas e baús, combate, fuga, poder do ♥, armadilhas.
-      this.spent = { open: 0, attack: 0, flee: 0, power: 0, trap: 0, spadeAttack: 0, spadeOther: 0 };
+      this.spent = { open: 0, attack: 0, flee: 0, power: 0, trap: 0, spadeAttack: 0, spadeOther: 0, damage: 0 };
       this.rings = Array(this.config.ringSlots).fill(null); // anéis no dedo: { id, ring }
       // Turnos e mana (experimento Turnos): cada passo e cada porta aberta é 1 turno.
       this.turn = 0;
       this.steps = 0; // passos dados (só para o relatório)
       this.hunger = 0; // turnos desde a última carta queimada pela fome
       this.starved = 0; // cartas queimadas pela fome (relatório)
+      this.traded = 0; // trocas feitas em combate (relatório): cada uma custa a diferença em cartas do deck
       this.turnsByFloor = {};
       this.mana = 0;
       this.manaGained = 0;
@@ -258,7 +260,8 @@
             kind: 'rat',
             small: true,
             cards: [{ id: `r${++this.ratCount}${suit}${rank}`, suit, rank }],
-            hidden: [],
+            rows: [[`r${this.ratCount}${suit}${rank}`]],
+            cover: {},
             down: [],
             dead: false,
             ability: null,
@@ -372,7 +375,7 @@
       const cfg = this.config;
       const wide = { range: cfg.enemyWideRange, chance: cfg.enemyWideChance };
       const spots = this.floors.map((f) => DC.placeEnemies(this.rng, f, cfg.enemyMaxPerFloor, cfg.enemyRange, wide));
-      const sizeAt = (floorNo) => (floorNo >= cfg.enemyDeepFloor ? cfg.enemyDeepCards : cfg.enemyCards);
+      const sizeAt = (floorNo) => (floorNo >= cfg.enemyFinalFloor ? cfg.enemyFinalCards : floorNo >= cfg.enemyDeepFloor ? cfg.enemyDeepCards : cfg.enemyCards);
 
       const budget = Math.floor(this.dungeonDeck.length * cfg.enemyShare);
       // Cada carta ganha uma folga aleatória no ordenamento (enemyRamp): a dificuldade sobe com o
@@ -409,14 +412,16 @@
       const used = new Set();
       this.floors.forEach((floor, i) => {
         floor.enemies = sizes[i].map((size, id) => {
-          const cards = pool.splice(0, size);
-          cards.forEach((c) => used.add(c.id));
+          const dealt = pool.splice(0, size);
+          dealt.forEach((c) => used.add(c.id));
+          const { cards, rows, cover } = this.formation(dealt);
           return {
             id,
             ...spots[i][id],
             kind: size >= cfg.enemyDeepCards ? ['skeleton2', 'vampire'][(i + id) % 2] : 'skeleton1', // só aparência
             cards,
-            hidden: this.hiddenCards(cards),
+            rows,
+            cover,
             down: [],
             dead: false,
           };
@@ -445,14 +450,30 @@
       return n;
     }
 
-    // Ids das cartas do inimigo que começam viradas de costas (sempre sobra ao menos uma à vista).
-    // Só alguns inimigos têm carta virada (enemyHiddenChance). A escolha da carta continua saindo do
-    // sorteio principal e a decisão de esconder vem de um sorteio à parte: a masmorra não muda.
-    hiddenCards(cards) {
-      const count = Math.min(this.config.enemyHidden, cards.length - 1);
-      if (count <= 0) return [];
-      const ids = this.rng.shuffle(cards.slice()).slice(0, count).map((c) => c.id);
-      return this.hiddenRng.next() < this.config.enemyHiddenChance ? ids : [];
+    // Formação das cartas do inimigo, como na mesa: uma fila da FRENTE (cartas abertas) e, atrás dela, outra com as
+    // cartas TRAVADAS (viradas de costas). Cada carta de trás fica coberta pelas da frente que a tocam; ela só vira
+    // quando TODAS as que a cobrem caem. Inimigos de 1 ou 2 cartas não têm nada travado. Quais cartas ficam na frente
+    // sai de um sorteio à parte (formRng), então a masmorra de cada seed continua a mesma.
+    formation(dealt) {
+      const n = dealt.length;
+      const front = n <= 2 ? n : Math.max(2, Math.round(n * 0.4));
+      // O sorteio principal gasta o mesmo tanto de antes (o das cartas viradas): assim o resto da masmorra de cada seed não muda.
+      if (n >= 2) this.rng.shuffle(dealt.slice());
+      const order = this.formRng.shuffle(dealt.slice());
+      const cards = order;
+      const rows = front < n ? [order.slice(0, front).map((c) => c.id), order.slice(front).map((c) => c.id)] : [order.map((c) => c.id)];
+      return { cards, rows, cover: DC.coverOf(rows) };
+    }
+
+    // Uma carta de pé que ainda tem carta de pé na frente dela está travada (virada de costas).
+    isLocked(enemy, card) {
+      const cover = enemy.cover && enemy.cover[card.id];
+      return Boolean(cover) && cover.some((id) => !enemy.down.includes(id));
+    }
+
+    // Cartas do inimigo que dá para tirar agora: de pé e abertas.
+    openCards(enemy) {
+      return enemy.cards.filter((c) => !enemy.down.includes(c.id) && !this.isLocked(enemy, c));
     }
 
     startFloor(n) {
@@ -1115,57 +1136,106 @@
 
     // ---------- combate ----------
 
-    // Gasta cartas da mão para derrotar cartas do inimigo. Sem ♠, a soma precisa ser pelo menos o custo
-    // de UMA carta, à escolha. Com ♠ na seleção (que vale o dobro em combate) dá para derrubar VÁRIAS
-    // cartas de uma vez, desde que a soma cubra o custo de todas. Soma exata compra 1 carta;
-    // derrotar a última carta é a vitória, que compra mais 1 e tira o inimigo do mapa.
-    attack(cardIds, enemyCardIds) {
-      if (!this.canFight()) return fail('Não há combate agora.');
+    // Valida a escolha de cartas da mão e do inimigo para uma jogada de combate.
+    // Devolve { enemy, cards, targets } ou { error }.
+    combatPick(cardIds, enemyCardIds) {
+      if (!this.canFight()) return { error: 'Não há combate agora.' };
       const enemy = this.combatEnemy();
       const ids = Array.isArray(enemyCardIds) ? enemyCardIds : [enemyCardIds];
-      if (!ids.length || new Set(ids).size !== ids.length) return fail('Escolha uma carta do inimigo que ainda esteja de pé.');
+      if (!ids.length || new Set(ids).size !== ids.length) return { error: 'Escolha cartas do inimigo que ainda estejam de pé.' };
       const targets = ids.map((id) => enemy.cards.find((c) => c.id === id && !enemy.down.includes(c.id)));
-      if (targets.some((t) => !t)) return fail('Escolha uma carta do inimigo que ainda esteja de pé.');
-      if (targets.some((t) => enemy.hidden && enemy.hidden.includes(t.id))) return fail('Essa carta está virada de costas: derrube a outra primeiro.');
+      if (targets.some((t) => !t)) return { error: 'Escolha cartas do inimigo que ainda estejam de pé.' };
+      if (targets.some((t) => this.isLocked(enemy, t))) return { error: 'Essa carta está travada: tire primeiro as que estão na frente dela.' };
       const cards = this.handCards(cardIds);
-      if (!cards || !cards.length) return fail('Escolha cartas da mão.');
-      if (this.pending.frozen && cards.some((c) => c.id === this.pending.frozen)) return fail('Essa carta está congelada até você derrubar uma carta do inimigo.');
-      if (targets.length > 1 && !cards.some((c) => c.suit === 'S')) return fail('Só com uma carta de ♠ dá para derrubar mais de uma carta do inimigo de uma vez.');
+      if (!cards || !cards.length) return { error: 'Escolha cartas da mão.' };
+      if (this.pending.frozen && cards.some((c) => c.id === this.pending.frozen)) return { error: 'Essa carta está congelada até você tirar uma carta do inimigo.' };
+      return { enemy, cards, targets };
+    }
 
+    // Soma exata: as cartas escolhidas da mão (qualquer quantidade) valem exatamente o mesmo que as cartas ABERTAS do
+    // inimigo escolhidas (qualquer quantidade). ♠ vale o número ou o dobro, então casa com os dois. As cartas dele
+    // caem e as que estavam travadas atrás só destravam quando todas as da frente delas caírem.
+    // Derrotar a última carta é a vitória, que compra mais 1 e tira o inimigo do mapa.
+    attack(cardIds, enemyCardIds) {
+      const pick = this.combatPick(cardIds, enemyCardIds);
+      if (pick.error) return fail(pick.error);
+      const { enemy, cards, targets } = pick;
       const cost = targets.reduce((total, t) => total + t.rank, 0);
       const sums = this.attackSums(cardIds);
-      const best = sums[sums.length - 1];
-      if (best < cost) return fail(`Faltam ${cost - best} para derrotar ${targets.length > 1 ? 'essas cartas' : 'essa carta'} (custo ${cost}).`);
-
-      // ♠ vale o número ou o dobro: se alguma combinação dá a soma exata, é ela (e compra 1 carta).
-      const exact = sums.includes(cost);
-      const sum = exact ? cost : best;
+      if (!sums.includes(cost)) {
+        const near = sums.reduce((a, b) => (Math.abs(b - cost) < Math.abs(a - cost) ? b : a));
+        return fail(`A soma não bate: a sua vale ${near} e a dele ${cost}. Só soma exata derruba (se estiver preso, troque 1 carta por 1 carta).`);
+      }
       this.hand = this.hand.filter((c) => !cards.includes(c));
       this.discard.push(...cards);
       this.spent.attack += cards.length;
       this.spent.spadeAttack += cards.filter((c) => c.suit === 'S').length;
-      for (const t of targets) enemy.down.push(t.id);
-      const names = targets.map((t) => DC.rankLabel(t.rank)).join(' e ');
+      const drawn = this.config.matchDraw ? this.draw(this.config.matchDraw) : 0;
+      const names = targets.map((t) => DC.rankLabel(t.rank)).join(' + ');
+      this.log(`Soma exata! Tira ${targets.length > 1 ? 'as cartas' : 'a carta'} ${names} (${cost}).${drawn ? ` Você compra ${drawn} carta de graça.` : ''}`, 'good');
+      return this.settleCombat(enemy, targets, { exact: true, drawn });
+    }
 
-      // Gelo: derrubar uma carta do inimigo descongela a carta da mão.
+    // Troca (quando você está preso): UMA carta da mão por UMA carta aberta do inimigo de valor DIFERENTE.
+    // A diferença entre as duas vira dano no seu deck: tantas cartas do topo queimam. ♠ vale o número ou o dobro (o
+    // que ficar mais perto), o que dá menos dano. Se os valores batem não é troca, é soma exata (attack).
+    trade(cardId, enemyCardId) {
+      const pick = this.combatPick([cardId], [enemyCardId]);
+      if (pick.error) return fail(pick.error);
+      const { enemy, cards, targets } = pick;
+      const target = targets[0];
+      const diff = this.tradeCost([cardId], target.rank);
+      if (diff === 0) return this.attack([cardId], [enemyCardId]);
+      this.hand = this.hand.filter((c) => !cards.includes(c));
+      this.discard.push(...cards);
+      this.spent.attack++;
+      if (cards[0].suit === 'S') this.spent.spadeOther++;
+      const used = DC.rankLabel(cards[0].rank) + DC.SUIT_SYMBOL[cards[0].suit];
+      this.log(`Troca: ${used} por ${DC.rankLabel(target.rank)}${DC.SUIT_SYMBOL[target.suit]}. A diferença é ${diff}: seu deck sofre ${diff} de dano.`, 'bad');
+      const burned = this.burnDeck(diff);
+      this.spent.damage += burned.length;
+      this.traded++;
+      return this.settleCombat(enemy, targets, { exact: false, drawn: 0, damage: diff, burned });
+    }
+
+    // Menor diferença entre o que a seleção da mão pode valer (♠ vale o número ou o dobro) e o valor da carta do inimigo:
+    // é o dano de uma troca. 0 quer dizer soma exata.
+    tradeCost(cardIds, rank) {
+      return Math.min(...this.attackSums(cardIds).map((v) => Math.abs(v - rank)));
+    }
+
+    // Dano no deck: queima as `n` cartas do topo (vão para o descarte). Se o deck acabar, o que sobra queima da mão
+    // (sempre a menor carta). Devolve as cartas queimadas.
+    burnDeck(n) {
+      const burned = [];
+      for (let i = 0; i < n; i++) {
+        let card = this.playerDeck.pop();
+        if (!card && this.hand.length) {
+          card = this.hand.reduce((low, c) => (c.rank < low.rank ? c : low), this.hand[0]);
+          this.hand = this.hand.filter((c) => c !== card);
+        }
+        if (!card) break;
+        this.discard.push(card);
+        burned.push(card);
+      }
+      return burned;
+    }
+
+    // Depois que cartas do inimigo caem (soma exata ou troca): descongela o Gelo, desvira as cartas que ficaram sem nada
+    // na frente e, se foi a última, é a vitória.
+    settleCombat(enemy, targets, info) {
+      const lockedBefore = enemy.cards.filter((c) => !enemy.down.includes(c.id) && this.isLocked(enemy, c));
+      for (const t of targets) enemy.down.push(t.id);
+
+      // Gelo: tirar uma carta do inimigo descongela a carta da mão.
       if (this.pending.frozen) {
         const thawed = this.hand.find((c) => c.id === this.pending.frozen);
         this.pending.frozen = null;
         if (thawed) this.log(`A carta ${DC.rankLabel(thawed.rank)}${DC.SUIT_SYMBOL[thawed.suit]} descongela!`, 'good');
       }
 
-      let drawn = 0;
-      if (exact) {
-        drawn = this.draw(1);
-        this.log(`Soma exata! Derruba ${targets.length > 1 ? 'as cartas' : 'a carta'} ${names}${drawn ? ' e compra uma carta de graça' : ''}.`, 'good');
-      } else {
-        this.log(`Derruba ${targets.length > 1 ? 'as cartas' : 'a carta'} ${names} gastando ${sum}, sem compra de volta.`);
-      }
-
-      // Derrubar uma carta desvira as que estavam de costas.
-      const revealed = enemy.hidden ? enemy.hidden.filter((id) => !enemy.down.includes(id)) : [];
-      if (enemy.hidden) enemy.hidden = [];
-      if (revealed.length) this.log('A carta virada do inimigo é revelada!');
+      const revealed = lockedBefore.filter((c) => !enemy.down.includes(c.id) && !this.isLocked(enemy, c)).map((c) => c.id);
+      if (revealed.length) this.log(`${revealed.length > 1 ? 'Cartas destravadas' : 'Carta destravada'} do inimigo!`);
 
       let victory = false;
       let reward = 0;
@@ -1188,7 +1258,21 @@
         if (enemy.ring) this.oweRing(enemy.ring, 'inimigo');
       }
       this.afterAction();
-      return { ok: true, exact, drawn, victory, reward, scroll, revealed, enemyId: enemy.id, cardId: targets[0].id, cardIds: targets.map((t) => t.id), reinforce: victory ? enemy.reinforce || false : false };
+      return {
+        ok: true,
+        exact: Boolean(info.exact),
+        drawn: info.drawn || 0,
+        damage: info.damage || 0,
+        burned: info.burned || [],
+        victory,
+        reward,
+        scroll,
+        revealed,
+        enemyId: enemy.id,
+        cardId: targets[0].id,
+        cardIds: targets.map((t) => t.id),
+        reinforce: victory ? enemy.reinforce || false : false,
+      };
     }
 
     // Foge do combate descartando 1 carta da mão (a escolhida). Você fica onde está, e o inimigo ficar parado por

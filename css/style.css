@@ -2587,6 +2587,11 @@ html:not(.touch) .link:hover {
 .modal.combat .actions {
   justify-content: space-between;
   margin-top: 10px;
+  position: sticky;
+  bottom: -1px;
+  z-index: 5;
+  padding: 8px 0 4px;
+  background: linear-gradient(180deg, transparent, var(--panel, #241b33) 28%);
 }
 
 /* telas baixas: cartas menores */
@@ -2806,7 +2811,61 @@ html:not(.touch) .link:hover {
   --cw: 46px;
 }
 
-/* Ataque de ♠ em grupo: as cartas marcadas sobem e ganham contorno. */
+/* Formação do inimigo: fila da frente (aberta) por cima da fila de trás (travada), como na mesa. Cada fila ocupa a
+   largura toda dividida em partes iguais, então as cartas de trás ficam sob as da frente que as cobrem. */
+.modal.combat .enemy-board {
+  grid-column: 2;
+  width: calc((var(--cw) + 14px) * var(--n, 2));
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 0 14px;
+}
+
+.board-row {
+  display: flex;
+}
+
+.board-slot {
+  flex: 1 1 0;
+  display: flex;
+  justify-content: center;
+}
+
+.board-row.back {
+  position: relative;
+  z-index: 1;
+}
+
+.board-row.front {
+  position: relative;
+  z-index: 2;
+}
+
+.board-row.back + .board-row.front {
+  margin-top: calc(var(--cw) * -0.45);
+}
+
+.enemy-card.locked {
+  cursor: help;
+  filter: brightness(0.82);
+}
+
+.card .badge.lock {
+  bottom: auto;
+  top: -9px;
+  background: #4a1d1d;
+  color: #ffd9d9;
+  border: 1px solid #a64b4b;
+}
+
+.combat-status {
+  margin: 6px 0 0;
+  font-size: 13px;
+  text-align: center;
+}
+
+/* Cartas do inimigo marcadas para a soma: sobem e ganham contorno. */
 .enemy-card.target {
   transform: translateY(-8px);
   outline: 3px dashed var(--accent);
