@@ -62,7 +62,7 @@
     // Experimento Turnos (como no Rogue): andar é de graça, cada passo é um turno e os inimigos agem depois dele.
     wakeChance: 0.67, // chance de um inimigo grande acordar quando você termina um turno na zona dele (no Rogue, 2/3)
     wakeChanceSmall: 0.33, // a de um rato (dorme mais fundo)
-    sightRange: 5, // até onde um inimigo acordado enxerga você (em casas, em linha reta, sem parede no meio)
+    sightRange: 9, // até onde um inimigo acordado enxerga você (em casas, em linha reta, sem parede no meio)
     loseTrack: 3, // turnos sem te ver até ele desistir e voltar a dormir onde está
     fleeStun: 3, // turnos que o inimigo fica parado depois que você foge dele
     hasteTurns: 8, // Poção de velocidade: turnos em que os inimigos ficam parados

@@ -158,7 +158,7 @@
         id: 'fight',
         kind: 'coach',
         wait: 'win', // nunca é "concluído": chegar na escada vence o treino e abre a janela de fim
-        // O inimigo dorme ao lado da escada: chegar perto o acorda (no treino sempre acorda) e ele ataca.
+        // O inimigo dorme na sala: entrar nela o acorda (no treino sempre acorda) e ele ataca.
         spots: [
           {
             id: 'fight-clear',
@@ -171,11 +171,11 @@
             trigger: 'any',
             pulse: 'hand',
             focus: ['enemy', 'hand'],
-            lines: ['Um inimigo dorme ao lado da escada. A zona vermelha é onde ele pode acordar.', 'Chegue perto: ele acorda e vem atrás de você. Ou toque nele para atacar.'],
+            lines: ['Um inimigo dorme nesta sala, perto da escada. Quem entra na sala dele pode acordá-lo.', 'Ele acorda e vem atrás de você. Ou toque nele para atacar.'],
           },
         ],
         title: 'Inimigo',
-        body: { default: `Um <b>inimigo</b> dorme ao lado da escada. Chegue na <b>zona vermelha</b> para acordá-lo, ou toque nele para atacar.` },
+        body: { default: `Um <b>inimigo</b> dorme nesta sala. <b>Entrar na sala dele</b> o acorda, ou toque nele para atacar.` },
         done: { default: `<b>Você venceu!</b>` },
       },
     ],
@@ -204,7 +204,7 @@
         body: `<p>Você só enxerga as salas que já abriu. A escada <b>▼</b> está escondida: é preciso explorar, mas cada carta gasta é vida.</p>
           <p>Ao abrir a porta de uma <b>sala nova</b> a porta não dá carta por si só: só a <b>soma exata</b> compra (1 carta, ou 2 se for paga com cartas do mesmo naipe, sem passar de 5 na mão).</p>
           <p>Ao lado da mão você tem <b>1 slot de inventário</b> de brinde: escolha 1 carta e clique no slot para <b>guardá-la</b> em vez de gastá-la (clique nela para pegar de volta).</p>
-          <p>Dentro das salas pode haver <b>inimigos</b> (zona vermelha) e <b>baús</b>. A gente te avisa na hora. Boa sorte!</p>
+          <p>Dentro das salas pode haver <b>inimigos</b> (a sala fica avermelhada) e <b>baús</b>. A gente te avisa na hora. Boa sorte!</p>
           <p class="muted">Dá para rever tudo pelo botão <b>Como jogar</b>, e as regras completas ficam em <b>Regras</b>.</p>`,
         next: 'Jogar!',
       },
@@ -218,8 +218,8 @@
         body: 'Escolha cartas da mão cuja <b>soma</b> seja pelo menos o custo da porta e clique nela. Soma <b>exata</b> compra +1 carta (+2 se for paga com cartas do mesmo naipe).',
       },
       zone: {
-        title: 'Zona vermelha',
-        body: 'Um <b>inimigo</b> dorme nesta sala. Terminar um turno na zona vermelha pode <b>acordá-lo</b>; acordado, ele anda atrás de você e, quando encosta, começa um <b>combate</b>. Dá para passar de longe, ou tocar nele para atacar.',
+        title: 'Sala com inimigo',
+        body: 'Um <b>inimigo</b> dorme nesta sala (ela fica avermelhada). Quem está dentro dela pode <b>acordá-lo</b>, de qualquer distância; acordado, ele anda atrás de você e, quando encosta, começa um <b>combate</b>. Dá para só espiar da porta, ou tocar nele para atacar.',
       },
       scroll: {
         title: 'Pergaminho de Inventário',

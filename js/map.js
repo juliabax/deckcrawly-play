@@ -521,9 +521,11 @@
     return (floor.enemies || []).find((e) => !e.dead && e.x === x && e.y === y) || null;
   }
 
-  // Zona onde um inimigo ADORMECIDO pode acordar: casas em cruz até `range`, na sala dele.
-  function inWakeZone(enemy, cell, x, y) {
-    return !enemy.dead && !enemy.awake && inZone(enemy, cell, x, y);
+  // Onde um inimigo ADORMECIDO pode acordar: em qualquer casa da SALA dele (como no Rogue: entrou na sala, ele
+  // pode te notar, de longe). A porta ainda não conta: só quando você pisa dentro. (A "zona" em cruz de `range`
+  // continua existindo só para escolher onde colocar o inimigo, longe de portas, escadas e baús.)
+  function inWakeZone(enemy, cell) {
+    return !enemy.dead && !enemy.awake && Boolean(cell) && cell.room !== null && cell.room === enemy.room;
   }
 
   // Casas por onde um inimigo anda: chão, a escada de entrada e portas JÁ ABERTAS (nunca a saída, baús ou portas

@@ -1109,12 +1109,11 @@ html:not(.touch) .no-fx .hand .card:hover {
 
 /* zona de ataque: as casas em volta do inimigo ficam avermelhadas */
 .tile.zone {
-  outline: 1px solid rgba(255, 120, 120, 0.35);
-  outline-offset: -1px;
+  outline: none;
 }
 
 .tile.zone::before {
-  background: rgba(214, 70, 70, 0.34);
+  background: rgba(214, 70, 70, 0.13);
 }
 
 .tile.t-enemy::before {
