@@ -97,9 +97,11 @@
   // Rato (inimigo pequeno de 1 carta): desenhado em SVG nos dois visuais, até ganhar pixel art própria.
   const RAT_SVG = `<svg class="rat-ico" viewBox="0 0 32 32" aria-hidden="true"><path d="M7 22c-3-.5-5-3-4-6.500 .4-1.400 2-1.600 2.300-.3" fill="none" stroke="#e8a3a3" stroke-width="2" stroke-linecap="round" /><ellipse cx="14.500" cy="21" rx="10" ry="6.500" fill="#8f8a98" stroke="#2a2430" stroke-width="1.500" /><path d="M21.500 15.500c3-1.300 7.500.7 8.500 4-.9 2.200-5 3.200-8.500 2z" fill="#a8a3b1" stroke="#2a2430" stroke-width="1.500" stroke-linejoin="round" /><circle cx="21" cy="14.500" r="3.400" fill="#e8a3a3" stroke="#2a2430" stroke-width="1.200" /><circle cx="26" cy="18.500" r="1.200" fill="#ffd76a" stroke="#2a2430" stroke-width=".5" /><circle cx="30" cy="20" r="1.100" fill="#f08a9a" /><path d="M27.500 21.500l-3.500 1.200M27.500 22.500l-3 2" stroke="#2a2430" stroke-width=".8" stroke-linecap="round" /><path d="M9 26.500l-1.500 2M14 27.500l-.5 2.500M19 27l.5 2.500" stroke="#2a2430" stroke-width="1.500" stroke-linecap="round" /></svg>`;
 
-  // O zoom é um múltiplo do tamanho que faz a masmorra inteira caber na tela.
-  const ZOOMS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3];
-  const DEFAULT_ZOOM = 3; // índice em ZOOMS: 1.75x
+  // O zoom é um tamanho FIXO de casa, em pixels: 100% = 40 px, sempre, em qualquer andar, janela ou aparelho.
+  // Todos os valores são múltiplos de 8, então a pixel art fica nítida e cada passo do zoom muda de verdade.
+  const ZOOM_BASE = 40;
+  const ZOOM_TILES = [24, 32, 40, 48, 64, 80, 120]; // 60%, 80%, 100%, 120%, 160%, 200%, 300%
+  const DEFAULT_ZOOM = 2; // índice em ZOOM_TILES: 100%
   const LOW_DECK = 5; // com tantas cartas ou menos, o deck do jogador pisca como aviso
   const PAN_GAP = 10; // folga escura (em casas) que dá para arrastar além da borda do mapa
 
@@ -432,9 +434,9 @@
     // O zoom começa mais perto que a masmorra inteira; a escolha é lembrada.
     loadZoom() {
       try {
-        const raw = localStorage.getItem('deckcrawly.zoom');
+        const raw = localStorage.getItem('deckcrawly.zoom2'); // chave nova: o zoom antigo era relativo ao tamanho da tela
         const saved = raw === null ? NaN : Number(raw);
-        if (Number.isInteger(saved) && saved >= 0 && saved < ZOOMS.length) return saved;
+        if (Number.isInteger(saved) && saved >= 0 && saved < ZOOM_TILES.length) return saved;
       } catch (e) {
         /* sem armazenamento: usa o padrão */
       }
@@ -442,16 +444,17 @@
     }
 
     changeZoom(step) {
-      const next = Math.max(0, Math.min(ZOOMS.length - 1, this.zoom + step));
+      const next = Math.max(0, Math.min(ZOOM_TILES.length - 1, this.zoom + step));
       if (next === this.zoom) return;
       this.zoom = next;
       try {
-        localStorage.setItem('deckcrawly.zoom', String(next));
+        localStorage.setItem('deckcrawly.zoom2', String(next));
       } catch (e) {
         /* sem armazenamento: vale só nesta sessão */
       }
       this.view = null;
-      if (this.busy) return;
+      this.syncZoomButtons();
+      if (this.busy) return; // o mapa é redesenhado ao fim do movimento, já no zoom novo
       this.renderMap(false);
       this.updateHighlights();
     }
@@ -507,9 +510,9 @@
     }
 
     syncZoomButtons() {
-      document.getElementById('zoom-level').textContent = `${Math.round(ZOOMS[this.zoom] * 100)}%`;
+      document.getElementById('zoom-level').textContent = `${Math.round((ZOOM_TILES[this.zoom] / ZOOM_BASE) * 100)}%`;
       document.getElementById('btn-zoom-out').disabled = this.zoom === 0;
-      document.getElementById('btn-zoom-in').disabled = this.zoom === ZOOMS.length - 1;
+      document.getElementById('btn-zoom-in').disabled = this.zoom === ZOOM_TILES.length - 1;
     }
 
     syncFogButton() {
@@ -1948,15 +1951,12 @@
       const origin = this.fxOrigin; // a névoa se abre a partir da porta que acabou de abrir
       this.fxOrigin = null;
       const rect = this.el.mapWrap.getBoundingClientRect();
-      const fit = Math.min((rect.width - 24) / f.w, (rect.height - 24) / f.h);
-      this.tile = Number.isFinite(fit) && fit > 0 ? Math.max(20, Math.min(140, Math.floor(fit * ZOOMS[this.zoom]))) : 40;
+      this.tile = ZOOM_TILES[this.zoom];
       // Andar de treino: o mapa inteiro cabe sempre, ocupando no máximo metade da altura da área
       // (o resto, em cima, fica livre para os textos). O zoom escolhido não vale aqui.
       if (g.tutorial) this.tile = Math.max(24, Math.min(96, Math.floor(Math.min((rect.width - 48) / f.w, (rect.height * 0.5) / f.h))));
       this.el.mapWrap.classList.toggle('tutorial-map', g.tutorial);
       const art = this.artActive();
-      // Com a arte, a casa é múltiplo de 8 px: a pixel art de 16 px fica nítida.
-      if (art) this.tile = Math.max(24, Math.floor(this.tile / 8) * 8);
 
       const map = this.el.map;
       map.style.setProperty('--tile', `${this.tile}px`);
@@ -3083,7 +3083,7 @@
         <h4>Névoa</h4>
         <p>Você só enxerga a sala em que está e as salas cujas portas já abriu. Não dá para saber onde fica a escada de saída: é preciso gastar cartas explorando. O botão "Névoa" no topo (ou a tecla F) liga e desliga, útil para testar.</p>
         <h4>Zoom</h4>
-        <p>Os botões + e − no canto do mapa (ou as teclas + e −) aproximam e afastam. Com zoom perto, o mapa acompanha o seu personagem; em 100% você vê a masmorra inteira. Para olhar outras salas, <b>arraste o mapa</b> (em qualquer ponto, inclusive na parte escura). O botão ◎ ao lado do zoom (ou a tecla C) volta para o personagem, e a câmera também volta sozinha quando ele anda.</p>
+        <p>Os botões + e − no canto do mapa (ou as teclas + e −) aproximam e afastam. O zoom tem tamanhos fixos (100% = casas de 40 px, sempre igual), de 60% a 300%. Quando o mapa passa da tela, ele acompanha o seu personagem. Para olhar outras salas, <b>arraste o mapa</b> (em qualquer ponto, inclusive na parte escura). O botão ◎ ao lado do zoom (ou a tecla C) volta para o personagem, e a câmera também volta sozinha quando ele anda.</p>
         <h4>Inimigos</h4>
         <p>Os inimigos <b>começam dormindo</b>. Se você termina um turno na <b>zona vermelha</b> ao redor de um (1 casa, e uns 30% têm 2), ele pode <b>acordar</b>: cerca de 2 em 3 para os grandes e 1 em 3 para os ratos. Acordado, ele <b>anda uma casa por turno atrás de você</b>, sempre dentro da sala dele (não abre portas), e quando encosta começa o <b>combate</b>. Você também pode atacar um que dorme, tocando nele. Há <b>ratos</b>: inimigos pequenos de <b>1 carta baixa</b> (1 a 5), que rendem menos (às vezes uma Maçã). Os grandes têm <b>2 cartas</b> (<b>3 nos andares mais fundos</b>): cada uma é como o custo de uma porta, mas <b>em alguns (cerca de 1 em 4) uma delas começa virada de costas</b> e só aparece quando você derruba outra. No combate, escolha cartas da mão cuja soma seja pelo menos o custo de uma carta dele e derrube-a (soma exata compra 1 carta); o poder de ♥ funciona ali e o ♠ vale o dobro. Derrotando todas as cartas você vence e compra 1 carta. Dá para <b>fugir</b> descartando 1 carta: o inimigo fica parado por 2 turnos, dando tempo de se afastar (as cartas já derrubadas continuam derrubadas), mas se for a sua última carta você perde.</p>
         <h4>Pergaminho de Inventário</h4>
