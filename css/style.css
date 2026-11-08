@@ -2845,25 +2845,25 @@ body.shake main {
 }
 
 /* ---- Anéis (experimento Baralho Finito) ---- */
-.bag-slot.ring {
+.bag-slot.ring-slot {
   position: relative;
 }
 
-.bag-slot.ring .ring-ico {
+.bag-slot.ring-slot .ring-ico {
   width: 22px;
   height: 22px;
 }
 
-.bag-slot.ring small {
+.bag-slot.ring-slot small {
   font-size: 9px;
   color: var(--muted, #b9b3c9);
 }
 
-.bag-slot.ring.suit:not(.spent) small {
+.bag-slot.ring-slot.suit:not(.spent) small {
   color: #9be29b;
 }
 
-.bag-slot.ring.spent {
+.bag-slot.ring-slot.spent {
   opacity: 0.55;
   border-color: var(--line);
 }

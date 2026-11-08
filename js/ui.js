@@ -1639,7 +1639,7 @@
           const broke = active && g.mana < cost;
           const tip = `${def.name}: ${def.text}${active ? ` Custa ${cost} de mana. Escolha 1 carta e toque no anel.` : ''}`;
           const state = active ? `${cost} mana` : 'no dedo';
-          return `<button class="bag-slot item ring${broke ? ' spent' : ''}${active ? ' suit' : ''}" data-ring="${i}" title="${tip}">${ringSVG(ring.ring)}<span>${def.short}</span><small>${state}</small></button>`;
+          return `<button class="bag-slot item ring-slot${broke ? ' spent' : ''}${active ? ' suit' : ''}" data-ring="${i}" title="${tip}">${ringSVG(ring.ring)}<span>${def.short}</span><small>${state}</small></button>`;
         })
         .join('');
       return `<div class="stash-label">Anéis ${worn}/${g.rings.length}</div><div class="bag-row">${chips}</div>`;
