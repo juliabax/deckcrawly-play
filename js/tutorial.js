@@ -119,7 +119,7 @@
             id: 'hearts-use',
             trigger: 'suit', // a carta escolhida é de ♥
             focus: ['card', 'power', 'deck'], // o deck também: é de lá que as cartas saem
-            lines: ['Copas compram cartas do deck para a sua mão.', 'O número indica o máximo de cartas compradas: respeitando o limite de 7 cartas na mão.'],
+            lines: ['Copas compram cartas do deck para a sua mão.', 'O número indica o máximo de cartas compradas: respeitando o limite de 5 cartas na mão.'],
           },
           {
             id: 'hearts-pick',
@@ -189,7 +189,7 @@
         title: 'Os 4 naipes',
         body: `<p>Uma carta sozinha também pode ativar o <b>poder do naipe</b> (o número é a intensidade):</p>
           <ul>
-            <li><b>♥ Copas:</b> compra até N cartas (a mão vai até 7).</li>
+            <li><b>♥ Copas:</b> compra até N cartas (a mão vai até 5).</li>
             <li><b>♠ Espadas:</b> em combate vale o dobro e derruba várias cartas do inimigo.</li>
             <li><b>♦ Ouros:</b> <b>mana</b>: vira mana igual ao número, que paga o uso dos anéis.</li>
             <li><b>♣ Paus:</b> <b>coringa</b>. Vale o próprio número ou copia o de outra carta da mão.</li>
@@ -202,7 +202,7 @@
         kind: 'modal',
         title: 'Salas novas e névoa',
         body: `<p>Você só enxerga as salas que já abriu. A escada <b>▼</b> está escondida: é preciso explorar, mas cada carta gasta é vida.</p>
-          <p>Ao abrir a porta de uma <b>sala nova</b> você pode <b>descartar cartas</b> e <b>comprar 1</b> (sem passar de 7 na mão). Acertar a soma exata dá mais 1 de bônus.</p>
+          <p>Ao abrir a porta de uma <b>sala nova</b> você pode <b>descartar cartas</b> e <b>comprar 1</b> (sem passar de 5 na mão). Acertar a soma exata dá mais 1 de bônus.</p>
           <p>Ao lado da mão você tem <b>1 slot de inventário</b> de brinde: escolha 1 carta e clique no slot para <b>guardá-la</b> em vez de gastá-la (clique nela para pegar de volta).</p>
           <p>Dentro das salas pode haver <b>inimigos</b> (zona vermelha) e <b>baús</b>. A gente te avisa na hora. Boa sorte!</p>
           <p class="muted">Dá para rever tudo pelo botão <b>Como jogar</b>, e as regras completas ficam em <b>Regras</b>.</p>`,

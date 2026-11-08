@@ -3,7 +3,7 @@
 
   const DEFAULT_CONFIG = {
     floors: 5,
-    handMax: 7,
+    handMax: 5,
     chestOptions: 5,
     chestPicks: 2,
     refillDraw: 1, // cartas compradas ao entrar numa sala nova (sempre respeitando handMax)
