@@ -2089,11 +2089,13 @@
       }
       // Seguindo o personagem, o mapa não sai das bordas. Arrastando, sobra uma folga
       // escura de 10 casas em volta, para a borda não ficar presa no canto da tela.
-      const gap = PAN_GAP * this.tile;
+      // A folga cobre ao menos metade da área, para qualquer ponto do mapa poder chegar ao centro da tela.
+      // Vale também nos dois eixos quando o mapa cabe na área (antes ele ficava preso, sem arrastar).
       const axis = (size, total, pos, dragged) => {
+        const gap = Math.max(PAN_GAP * this.tile, size / 2);
+        if (dragged !== null) return Math.min(Math.max(size - total, 0) + gap, Math.max(Math.min(size - total, 0) - gap, dragged));
         if (total <= size) return (size - total) / 2;
-        if (dragged === null) return Math.min(0, Math.max(size - total, size / 2 - (pos + 0.5) * this.tile));
-        return Math.min(gap, Math.max(size - total - gap, dragged));
+        return Math.min(0, Math.max(size - total, size / 2 - (pos + 0.5) * this.tile));
       };
       const w = wrap.clientWidth;
       const h = wrap.clientHeight;
@@ -2106,7 +2108,7 @@
         this.view = null;
       }
       this.camera = { tx, ty };
-      wrap.classList.toggle('pannable', !this.game.tutorial && (f.w * this.tile > w || f.h * this.tile > h));
+      wrap.classList.toggle('pannable', !this.game.tutorial);
       document.getElementById('btn-center').disabled = !this.view;
       if (!animate) map.style.transition = 'none';
       map.style.transform = `translate(${tx}px, ${ty}px)`;
