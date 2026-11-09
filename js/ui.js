@@ -68,6 +68,17 @@
       const flame = fx.used ? '' : '<path d="M16 3.500c3 4 5 5.500 5 8.500a5 5 0 0 1-10 0c0-3 2-4.500 5-8.500z" fill="#ff8a3d" stroke="#7a2e0c" stroke-width="1.300"/><path d="M16 9c1.500 2 2.300 2.800 2.300 4.300a2.300 2.300 0 0 1-4.600 0C13.700 11.800 14.500 11 16 9z" fill="#ffd76a"/>';
       return `<svg class="fixture altar${dim}" viewBox="0 0 32 32"><rect x="5.500" y="19" width="21" height="9" rx="2" fill="#8c8aa0" stroke="#2a2d3a" stroke-width="2"/><rect x="3" y="15" width="26" height="5.500" rx="2" fill="#a9a7bd" stroke="#2a2d3a" stroke-width="2"/>${flame}</svg>`;
     }
+    if (fx.kind === 'crypt') {
+      const glow = fx.used ? '' : '<circle cx="16" cy="9" r="4.500" fill="#b8f0d8" fill-opacity=".35"/>';
+      return `<svg class="fixture crypt${dim}" viewBox="0 0 32 32">${glow}<path d="M9 28V12a7 7 0 0 1 14 0v16z" fill="#8c8aa0" stroke="#2a2d3a" stroke-width="2"/><rect x="5" y="26" width="22" height="3.500" rx="1" fill="#6b6f80" stroke="#2a2d3a" stroke-width="1.500"/><path d="M16 9v9M12.500 12.500h7" stroke="#2a2d3a" stroke-width="2" stroke-linecap="round"/></svg>`;
+    }
+    if (fx.kind === 'table') {
+      return `<svg class="fixture table${dim}" viewBox="0 0 32 32"><ellipse cx="16" cy="19" rx="14" ry="9" fill="#2f7a4d" stroke="#173d27" stroke-width="2"/><ellipse cx="16" cy="19" rx="10.500" ry="6" fill="none" stroke="#7fd09e" stroke-opacity=".5" stroke-width="1"/><g transform="rotate(-14 12 16)"><rect x="7.500" y="9" width="8" height="11" rx="1.200" fill="#f6efe0" stroke="#3a2f22" stroke-width="1.200"/><text x="11.500" y="17" text-anchor="middle" font-size="7" font-weight="900" fill="#b4352e">♥</text></g><g transform="rotate(12 21 16)"><rect x="17" y="10" width="8" height="11" rx="1.200" fill="#f6efe0" stroke="#3a2f22" stroke-width="1.200"/><text x="21" y="18" text-anchor="middle" font-size="7" font-weight="900" fill="#1f1f2b">♠</text></g></svg>`;
+    }
+    if (fx.kind === 'forge') {
+      const spark = fx.used ? '' : '<path d="M22.500 4l1 2.800L26 8l-2.500 1.200-1 2.800-1-2.800L19 8l2.500-1.200z" fill="#ffd76a" stroke="#7a4a0c" stroke-width=".8"/><circle cx="12" cy="9" r="1.200" fill="#ff8a3d"/>';
+      return `<svg class="fixture forge${dim}" viewBox="0 0 32 32">${spark}<path d="M5 14h18l4-3v6l-4-1H17v4l3 1v3H10v-3l3-1v-4H7z" fill="#7d8398" stroke="#262a38" stroke-width="2" stroke-linejoin="round"/><rect x="8" y="26" width="16" height="3" rx="1" fill="#5b4a3a" stroke="#262a38" stroke-width="1.500"/></svg>`;
+    }
     const books = (y, colors) => colors.map((c, i) => `<rect x="${6.500 + i * 4.600}" y="${y}" width="3.800" height="8" rx=".8" fill="${c}" stroke="#2f1d0c" stroke-width=".9"/>`).join('');
     return `<svg class="fixture library${dim}" viewBox="0 0 32 32"><rect x="4" y="3.500" width="24" height="25" rx="2" fill="#6b4a2a" stroke="#2f1d0c" stroke-width="2"/><path d="M5 16h22" stroke="#2f1d0c" stroke-width="2"/>${books(7, ['#c0453c', '#e7b84a', '#4a7fc0', '#6fcf97', '#b48cf2'])}${books(19, ['#e7b84a', '#c0453c', '#6fcf97', '#4a7fc0', '#e8dcc0'])}</svg>`;
   }
@@ -224,6 +235,9 @@
       this.picks = new Set();
       this.targets = new Set(); // cartas do inimigo marcadas para o ataque de um ♠
       this.libKey = null; // pergaminho escolhido na biblioteca
+      this.cryptTake = new Set(); // cartas do cemitério marcadas na cripta
+      this.forgeTarget = null; // oficina: carta a melhorar
+      this.forgeBurn = null; // oficina: carta a queimar
     }
 
     // Cartas do inimigo que dá para tirar agora (de pé e abertas, sem carta na frente).
@@ -1537,6 +1551,73 @@
           this.toastOk(`Você leva ${this.offerInfo(res.key).title}.`);
           break;
         }
+        case 'crypt-pay': {
+          const need = g.config.cryptCost;
+          if (this.discard.has(id)) this.discard.delete(id);
+          else if (this.discard.size < need) this.discard.add(id);
+          else if (need === 1) this.discard = new Set([id]);
+          this.renderOverlay();
+          break;
+        }
+        case 'crypt-grave': {
+          const want = Math.min(g.config.cryptTake, g.discard.length);
+          if (this.cryptTake.has(id)) this.cryptTake.delete(id);
+          else if (this.cryptTake.size < want) this.cryptTake.add(id);
+          else return this.toast(`Só dá para trazer ${want} carta${want === 1 ? '' : 's'}: desmarque uma antes.`);
+          this.renderOverlay();
+          break;
+        }
+        case 'crypt-go': {
+          const res = g.resolveCrypt([...this.cryptTake], [...this.discard].filter((cid) => g.hand.some((c) => c.id === cid)));
+          if (!res.ok) return this.toast(res.error);
+          this.track('special', { kind: 'crypt', cards: res.cards.length });
+          this.sound('ding');
+          this.resetOverlayState();
+          this.renderAll();
+          this.toastOk(`A cripta devolve ao deck: ${res.cards.map(label).join(', ')}.`);
+          break;
+        }
+        case 'table-pick':
+          this.discard = this.discard.has(id) ? new Set() : new Set([id]);
+          this.renderOverlay();
+          break;
+        case 'table-go': {
+          const cardId = [...this.discard].find((cid) => g.hand.some((c) => c.id === cid));
+          const res = g.resolveTable(cardId);
+          if (!res.ok) return this.toast(res.error);
+          this.track('special', { kind: 'table', outcome: res.outcome, rank: res.bet.rank });
+          this.sound(res.outcome === 'lose' ? 'creak' : 'ding', res.outcome === 'lose' ? 0.3 : undefined);
+          this.resetOverlayState();
+          this.renderAll();
+          const text = {
+            win: `Você ganha! ${label(res.bet)} contra ${label(res.house)} da casa: ${res.cards.length} cartas novas entram no deck.`,
+            tie: `Empate: ${label(res.bet)} contra ${label(res.house)} da casa. Sua carta volta para a mão.`,
+            lose: `Você perde: ${label(res.bet)} contra ${label(res.house)} da casa. A aposta vai para o cemitério.`,
+          }[res.outcome];
+          if (res.outcome === 'lose') this.toast(text);
+          else this.toastOk(text);
+          break;
+        }
+        case 'forge-target':
+          this.forgeTarget = this.forgeTarget === id ? null : id;
+          if (this.forgeBurn === id) this.forgeBurn = null;
+          this.renderOverlay();
+          break;
+        case 'forge-burn':
+          this.forgeBurn = this.forgeBurn === id ? null : id;
+          if (this.forgeTarget === id) this.forgeTarget = null;
+          this.renderOverlay();
+          break;
+        case 'forge-go': {
+          const res = g.resolveForge(this.forgeTarget, this.forgeBurn ? [this.forgeBurn] : [], btn.dataset.mode);
+          if (!res.ok) return this.toast(res.error);
+          this.track('special', { kind: 'forge', mode: res.mode });
+          this.sound('ding');
+          this.resetOverlayState();
+          this.renderAll();
+          this.toastOk(`A oficina transforma ${label(res.before)} em ${label(res.card)}.`);
+          break;
+        }
         case 'special-close':
           g.closeSpecial();
           this.resetOverlayState();
@@ -1726,7 +1807,8 @@
 
     renderStash() {
       const g = this.game;
-      this.el.stash.innerHTML = `<div class="stash-label">Inventário ${g.slotsOpen ? `${g.stash.length}/${g.slotsOpen}` : 'bloqueado'}</div><div class="stash-row">${this.slotsInner()}</div>${this.bagHTML()}`;
+      const gear = this.bagHTML();
+      this.el.stash.innerHTML = `<div class="stash-group"><div class="stash-label">Inventário ${g.slotsOpen ? `${g.stash.length}/${g.slotsOpen}` : 'bloqueado'}</div><div class="stash-row">${this.slotsInner()}</div></div>${gear ? `<div class="stash-group gear">${gear}</div>` : ''}`;
       this.newSlot = -1;
     }
 
@@ -1741,6 +1823,9 @@
           : `Poço de água ${fx.look}: ninguém sabe o que ele faz. Toque para beber e descobrir (de graça).`;
       }
       if (fx.kind === 'altar') return fx.used ? 'Altar apagado' : 'Altar: sacrifique 1 carta da mão e ganhe um prêmio (quanto maior o valor, melhor)';
+      if (fx.kind === 'crypt') return fx.used ? 'Cripta vazia' : `Cripta: pague ${g.config.cryptCost} carta e traga ${g.config.cryptTake} de volta do cemitério para o deck`;
+      if (fx.kind === 'table') return fx.used ? 'Mesa vazia' : 'Mesa de jogo: aposte 1 carta contra a da casa (maior ganha cartas novas, menor perde a aposta)';
+      if (fx.kind === 'forge') return fx.used ? 'Oficina apagada' : `Oficina: queime ${g.config.forgeCost} carta para dar +1 de valor, ou outro naipe, a outra`;
       return fx.used ? 'Estante vazia' : `Estante de pergaminhos: pague ${g.config.libraryCost} carta e leve 1 entre 3`;
     }
 
@@ -1754,8 +1839,8 @@
     fixtureHintHTML() {
       const near = this.game.adjacentFixtures();
       if (!near.length) return '';
-      const names = { well: 'Poço', altar: 'Altar', library: 'Estante' };
-      return near.map(({ obj }) => `<p><b>${names[obj.kind]}</b> ao seu lado: ${this.isTouch() ? 'toque' : 'clique'} nele no mapa para usar.${obj.kind === 'well' ? ' Beber é de graça.' : ''}</p>`).join('');
+      const names = { well: 'Poço', altar: 'Altar', library: 'Estante', crypt: 'Cripta', table: 'Mesa de jogo', forge: 'Oficina' };
+      return near.map(({ obj }) => `<p><b>${names[obj.kind]}</b> ao lado: ${this.isTouch() ? 'toque' : 'clique'} nele.${obj.kind === 'well' ? ' Beber é de graça.' : ''}</p>`).join('');
     }
 
     useFixtureClick(x, y, tile) {
@@ -1829,6 +1914,77 @@
         <div class="cardrow">${g.hand.length ? this.handRow('toggle-discard', this.discard) : '<p class="muted">Sua mão está vazia.</p>'}</div>
         <div class="summary">Pagando ${chosen.length}/${need} · ${this.libKey ? `levando ${this.offerInfo(this.libKey).title}` : 'escolha um pergaminho'}</div>
         <div class="actions"><button class="btn primary" data-ov="library-go" ${ready ? '' : 'disabled'}>Levar o pergaminho</button><button class="btn" data-ov="special-close">Deixar a estante</button></div>
+      </div>`;
+    }
+
+    // Cripta: pague 1 carta da mão e escolha cartas do cemitério para voltarem ao deck.
+    cryptHTML() {
+      const g = this.game;
+      const cfg = g.config;
+      const need = cfg.cryptCost;
+      const want = Math.min(cfg.cryptTake, g.discard.length);
+      const paid = [...this.discard].filter((id) => g.hand.some((c) => c.id === id));
+      const order = { S: 0, H: 1, D: 2, C: 3 };
+      const sorted = g.discard.slice().sort((a, b) => order[a.suit] - order[b.suit] || a.rank - b.rank);
+      const pick = (c) => cardHTML(c, { small: true, selected: this.cryptTake.has(c.id), extra: '' }).replace('class="card', 'data-ov="crypt-grave" class="card');
+      const groups = ['S', 'H', 'D', 'C']
+        .map((suit) => {
+          const list = sorted.filter((c) => c.suit === suit);
+          return list.length ? `<div class="grave-suit"><h4>${sym(suit)} ${DC.SUIT_NAME[suit]} · ${list.length}</h4><div class="grave-row">${list.map(pick).join('')}</div></div>` : '';
+        })
+        .join('');
+      const ready = want > 0 && this.cryptTake.size === want && paid.length === need;
+      return `<div class="modal special-modal">
+        <div class="special-big">${fixtureSVG({ kind: 'crypt', used: false })}</div>
+        <h2>Cripta</h2>
+        <p>Pague <b>${need} carta${need === 1 ? '' : 's'}</b> da mão e traga de volta <b>${cfg.cryptTake}</b> do cemitério: elas entram no seu deck em posições aleatórias.</p>
+        <h4>Do cemitério (marque ${want || cfg.cryptTake})</h4>
+        ${g.discard.length ? groups : '<p class="muted">O cemitério está vazio: volte aqui depois de gastar algumas cartas.</p>'}
+        <h4>Sua mão (marque ${need} para pagar)</h4>
+        <div class="cardrow">${g.hand.length ? this.handRow('crypt-pay', this.discard) : '<p class="muted">Sua mão está vazia.</p>'}</div>
+        <div class="summary">Trazendo ${this.cryptTake.size}/${want} · pagando ${paid.length}/${need}</div>
+        <div class="actions"><button class="btn primary" data-ov="crypt-go" ${ready ? '' : 'disabled'}>Trazer de volta</button><button class="btn" data-ov="special-close">Deixar a cripta</button></div>
+      </div>`;
+    }
+
+    // Mesa de jogo: aposte 1 carta; a carta da casa só aparece depois.
+    tableHTML() {
+      const g = this.game;
+      const cfg = g.config;
+      const ids = [...this.discard].filter((id) => g.hand.some((c) => c.id === id)).slice(-1);
+      const card = ids.length ? g.hand.find((c) => c.id === ids[0]) : null;
+      return `<div class="modal special-modal">
+        <div class="special-big">${fixtureSVG({ kind: 'table', used: false })}</div>
+        <h2>Mesa de jogo</h2>
+        <p>Aposte <b>1 carta da mão</b> contra uma carta da casa, que só aparece depois. Se a sua for <b>maior</b>, ela volta e entram <b>${cfg.tableWinCards} cartas novas</b> no deck. Se for <b>igual</b>, ela volta. Se for <b>menor</b>, você a perde. Valores: A é o menor e K o maior.</p>
+        <h4>Sua mão (toque na carta a apostar)</h4>
+        <div class="cardrow">${g.hand.length ? this.handRow('table-pick', new Set(ids)) : '<p class="muted">Sua mão está vazia.</p>'}</div>
+        <div class="summary">${card ? `Apostar ${label(card)}: ${Math.round(((card.rank - 1) / 13) * 100)}% de ganhar, ${Math.round(100 / 13)}% de empatar, ${Math.round(((13 - card.rank) / 13) * 100)}% de perder` : 'Escolha uma carta da mão.'}</div>
+        <div class="actions"><button class="btn primary" data-ov="table-go" ${card ? '' : 'disabled'}>Apostar</button><button class="btn" data-ov="special-close">Deixar a mesa</button></div>
+      </div>`;
+    }
+
+    // Oficina: escolha a carta a melhorar, a que queima e a melhoria.
+    forgeHTML() {
+      const g = this.game;
+      const cfg = g.config;
+      const target = g.hand.find((c) => c.id === this.forgeTarget) || null;
+      const burn = g.hand.find((c) => c.id === this.forgeBurn) || null;
+      const row = (attr, chosenId) => g.hand.map((c) => cardHTML(c, { selected: c.id === chosenId, extra: '' }).replace('class="card', `data-ov="${attr}" class="card`)).join('');
+      const ready = Boolean(target && burn);
+      const upOk = ready && target.rank < 13;
+      const suitBtn = (suit) => `<button class="btn" data-ov="forge-go" data-mode="${suit}" ${ready && target.suit !== suit ? '' : 'disabled'}>${sym(suit)}</button>`;
+      const preview = target ? `${label(target)} pode virar ${target.rank < 13 ? label({ suit: target.suit, rank: target.rank + 1 }) : 'nada (K não sobe)'} ou mudar de naipe.` : 'Escolha a carta a melhorar.';
+      return `<div class="modal special-modal">
+        <div class="special-big">${fixtureSVG({ kind: 'forge', used: false })}</div>
+        <h2>Oficina</h2>
+        <p>Queime <b>${cfg.forgeCost} carta</b> da mão para melhorar <b>outra</b> para sempre: <b>+1 no valor</b> (um 3 vira 4) ou <b>outro naipe</b>.</p>
+        <h4>1. Carta a melhorar</h4>
+        <div class="cardrow">${g.hand.length ? row('forge-target', this.forgeTarget) : '<p class="muted">Sua mão está vazia.</p>'}</div>
+        <h4>2. Carta a queimar</h4>
+        <div class="cardrow">${g.hand.length ? row('forge-burn', this.forgeBurn) : ''}</div>
+        <div class="summary">${preview}${target && !burn ? ' Agora escolha a carta a queimar.' : ''}</div>
+        <div class="actions"><button class="btn primary" data-ov="forge-go" data-mode="up" ${upOk ? '' : 'disabled'}>+1 no valor</button>${['S', 'H', 'D', 'C'].map(suitBtn).join('')}<button class="btn" data-ov="special-close">Deixar a oficina</button></div>
       </div>`;
     }
 
@@ -2112,7 +2268,7 @@
     }
 
     renderLog() {
-      const recent = this.game.logs.slice(-14).reverse();
+      const recent = this.game.logs.slice(-6).reverse();
       this.el.log.innerHTML = recent.map((l) => `<div class="${l.kind}">${l.text}</div>`).join('');
     }
 
@@ -2200,12 +2356,9 @@
       const cards = g.handCards(this.sel) || [];
       panel.classList.remove('exact');
       if (!cards.length) {
-        panel.innerHTML = `<h3>Sua vez · turno ${g.turn}</h3>
-          <p>Selecione cartas da mão:</p>
-          <p class="muted">• <b>Andar é de graça:</b> ${this.isTouch() ? 'toque' : 'clique'} numa casa (ou use as setas). Cada passo é um turno e os inimigos se mexem.<br>
-          • <b>1 carta</b> usa o poder do naipe (♥ compra, ♦ vira mana).<br>
-          • <b>Cartas somadas</b> abrem portas e baús ao seu lado.</p>${
-            g.adjacentTargets().some((t) => t.kind === 'chest' && t.obj.free) ? `<p><b>Baú destrancado</b> ao seu lado: ${this.isTouch() ? 'toque' : 'clique'} nele para abrir de graça, sem gastar cartas.</p>` : ''
+        panel.innerHTML = `<h3>Turno ${g.turn}</h3>
+          <p class="muted">${this.isTouch() ? 'Toque' : 'Clique'} numa casa para andar. Marque cartas para abrir portas e baús.</p>${
+            g.adjacentTargets().some((t) => t.kind === 'chest' && t.obj.free) ? `<p><b>Baú destrancado</b> ao lado: ${this.isTouch() ? 'toque' : 'clique'} nele (de graça).</p>` : ''
           }${this.fixtureHintHTML()}${this.ringHintHTML()}`;
         return;
       }
@@ -2216,14 +2369,14 @@
 
       const targets = g.adjacentTargets();
       if (!targets.length) {
-        html += '<p class="muted">Fique ao lado de uma porta ou baú fechado para abri-lo.</p>';
+        html += '<p class="muted">Fique ao lado de uma porta ou baú.</p>';
       } else {
         for (const t of targets) {
           const cost = t.obj.cost.rank;
           const name = t.kind === 'door' ? 'Porta' : 'Baú';
           let status;
           if (t.kind === 'chest' && t.obj.free) {
-            html += `<p><b>Baú destrancado</b> <span class="tag exact">abre de graça</span><br><span class="muted">${this.isTouch() ? 'Toque' : 'Clique'} nele no mapa: as cartas escolhidas não são gastas.</span></p>`;
+            html += `<p><b>Baú destrancado</b> <span class="tag exact">abre de graça</span></p>`;
             continue;
           }
           if (sum === cost) {
@@ -2231,12 +2384,12 @@
             status = `<span class="tag exact">soma exata · ${same ? `mesmo naipe: compra ${g.config.flushBonus} cartas` : `compra ${g.config.exactBonus} carta`}</span>`;
           } else if (sum > cost) status = '<span class="tag ok">abre · sem compra</span>';
           else status = `<span class="tag no">faltam ${cost - sum}</span>`;
-          html += `<p><b>${name}</b> custo ${miniInline(t.obj.cost)} ${status}<br><span class="muted">${this.isTouch() ? 'Toque' : 'Clique'} nela no mapa para abrir.</span></p>`;
+          html += `<p><b>${name}</b> custo ${miniInline(t.obj.cost)} ${status}</p>`;
         }
       }
       html += this.fixtureHintHTML();
       html += this.ringHintHTML();
-      html += '<button class="btn" data-act="clear">Limpar seleção (Esc)</button>';
+      html += '<button class="btn" data-act="clear">Limpar (Esc)</button>';
       panel.innerHTML = html;
     }
 
@@ -2276,7 +2429,7 @@
             return open && animate && this.shownFloor === f && !this.prevOpen.has(key) ? ' just-opened' : '';
           };
           const alt = (x + y) % 2 ? ' alt' : '';
-          const treasure = cell.room !== null && f.rooms[cell.room].kind === 'treasure' ? ' treasure' : cell.room !== null && ['well', 'altar', 'library', 'secret'].includes(f.rooms[cell.room].kind) ? ' sp-room' : '';
+          const treasure = cell.room !== null && f.rooms[cell.room].kind === 'treasure' ? ' treasure' : cell.room !== null && ['well', 'altar', 'library', 'crypt', 'table', 'forge', 'secret'].includes(f.rooms[cell.room].kind) ? ' sp-room' : '';
           let cls = 't-void';
           let inner = '';
           let title = '';
@@ -3095,6 +3248,9 @@
       else if (kind === 'chest') html = this.chestHTML();
       else if (kind === 'altar') html = this.altarHTML();
       else if (kind === 'library') html = this.libraryHTML();
+      else if (kind === 'crypt') html = this.cryptHTML();
+      else if (kind === 'table') html = this.tableHTML();
+      else if (kind === 'forge') html = this.forgeHTML();
       else if (kind === 'combat') html = this.combatHTML();
       if (html && this.tipHTML) html = html.replace('</h2>', `</h2><div class="tip"><b>Dica:</b> ${this.tipHTML}</div>`);
 
@@ -3458,7 +3614,7 @@
         <h4>Inimigos</h4>
         <p>Os inimigos <b>começam dormindo</b>. Enquanto você está <b>dentro da sala</b> de um (avermelhada, de qualquer distância), ele pode <b>acordar</b> a cada turno: 2 em 3 para os grandes e 1 em 3 para os ratos, ou seja, quase sempre acordam. Da porta você ainda só espia. Acordado, ele <b>anda uma casa por turno atrás de você</b>, <b>até em outras salas</b> (passa por portas que você já abriu, mas não abre as fechadas), e quando encosta começa o <b>combate</b>. Ele te segue enquanto <b>te vê</b> (uns 9 casas, sem parede no meio; da porta ele só vê em linha reta). Se você sai da vista, ele vai até o último lugar onde te viu (<b>?</b>) e, depois de uns 3 turnos sem te achar, <b>desiste e volta a dormir</b>. Descer a escada também escapa. Você também pode atacar um que dorme, tocando nele. Há <b>ratos</b>: inimigos pequenos de <b>1 carta fácil de casar</b> (8 a Q), que rendem menos (às vezes uma Maçã). Os grandes têm <b>2 cartas</b> (<b>3 nos andares mais fundos e 4 no último</b>). Com 3 ou mais, elas ficam numa <b>formação</b>: uma fila da <b>frente, aberta</b>, e outra <b>atrás, travada</b> (virada de costas), coberta pelas da frente que a tocam. Uma carta travada só vira quando <b>todas</b> as que a cobrem caem. No combate, marque <b>cartas da sua mão</b> e <b>cartas abertas</b> dele: se as <b>somas forem exatamente iguais</b>, as cartas dele caem (qualquer quantidade dos dois lados; ♠ vale o número ou o dobro). Derrubando todas você vence e compra 1 carta; o poder de ♥ funciona ali. <b>Preso, sem soma que bata?</b> Dá para <b>trocar</b> 1 carta da mão por 1 carta aberta dele de valor diferente: a <b>diferença</b> vira <b>dano</b> e essa quantidade de cartas do topo do seu deck queima (se o deck acabar, queima da mão). Por isso sobrar só carta alta no fim sai caro. Dá para <b>fugir</b> descartando 1 carta: o inimigo fica parado por 3 turnos, dando tempo de sair da vista dele (as cartas já derrubadas continuam derrubadas), mas se for a sua última carta você perde.</p>
         <h4>Salas especiais e secretas</h4>
-        <p>Do <b>andar 2</b> em diante, cada andar tem um <b>beco sem saída extra</b> (a porta custa cartas, como as outras) com um <b>poço</b>, um <b>altar</b> ou uma <b>biblioteca</b>, e a ordem muda a cada partida. O <b>poço</b> é de graça, mas só se descobre o que faz bebendo (a cor da água decide: <b>enche a mana</b>, põe <b>cartas novas no deck</b> ou <b>enche a mão</b>), e seca depois. No <b>altar</b> você sacrifica 1 carta da mão: o valor dela decide o prêmio. Na <b>biblioteca</b> você paga ${this.game.config.libraryCost} carta e leva 1 entre 3 pergaminhos. Alguns andares têm também uma <b>sala secreta</b>: a porta parece parede e você a descobre <b>passando perto dela</b>, a até ${this.game.config.secretFindRadius} casas, na mesma sala (${Math.round(this.game.config.secretFindChance * 100)}% de chance por turno). Dentro há um baú que abre de graça e guarda um anel e um Bife.</p>
+        <p>Do <b>andar 2</b> em diante, cada andar tem um <b>beco sem saída extra</b> (a porta custa cartas, como as outras) com um <b>poço</b>, um <b>altar</b>, uma <b>biblioteca</b>, uma <b>cripta</b>, uma <b>mesa de jogo</b> ou uma <b>oficina</b>, e a ordem muda a cada partida. O <b>poço</b> é de graça, mas só se descobre o que faz bebendo (a cor da água decide: <b>enche a mana</b>, põe <b>cartas novas no deck</b> ou <b>enche a mão</b>), e seca depois. No <b>altar</b> você sacrifica 1 carta da mão: o valor dela decide o prêmio. Na <b>biblioteca</b> você paga ${this.game.config.libraryCost} carta e leva 1 entre 3 pergaminhos. Na <b>cripta</b> você paga ${this.game.config.cryptCost} carta e escolhe ${this.game.config.cryptTake} do <b>cemitério</b> para voltarem ao deck. Na <b>mesa de jogo</b> você aposta 1 carta da mão contra uma da casa: se a sua for maior, volta e ganha ${this.game.config.tableWinCards} cartas novas no deck; se for igual, volta; se for menor, você a perde. Na <b>oficina</b> você queima ${this.game.config.forgeCost} carta para dar a outra <b>+1 de valor</b> ou <b>outro naipe</b>, para sempre. Alguns andares têm também uma <b>sala secreta</b>: a porta parece parede e você a descobre <b>passando perto dela</b>, a até ${this.game.config.secretFindRadius} casas, na mesma sala (${Math.round(this.game.config.secretFindChance * 100)}% de chance por turno). Dentro há um baú que abre de graça e guarda um anel e um Bife.</p>
         <h4>Pergaminhos de Precisão e do Ladrão</h4>
         <p>Têm o mesmo efeito dos anéis de mesmo nome, mas são <b>de uso único e não gastam mana</b>: escolha 1 carta da mão e toque em <b>−1</b> ou <b>+1</b> no pergaminho da bolsa (o de <b>Precisão</b> também aparece na janela de combate). A carta sobe ou desce 1 (o Ás não desce e o Rei não sobe) e o pergaminho some. Saem de baús e de inimigos, no mesmo sorteio das poções e do mapa, e têm nome claro (não são misteriosos).</p>
         <h4>Pergaminho de Inventário</h4>

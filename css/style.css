@@ -452,6 +452,18 @@ html:not(.touch) .btn:hover:not(:disabled) {
   flex-direction: column;
   gap: 12px;
   min-height: 0;
+  overflow: hidden; /* a lateral nunca invade a mão e o inventário: o que não cabe é o histórico, que encolhe */
+}
+
+:where(.side) > .piles,
+:where(.side) > .panel,
+:where(.side) > .coach {
+  flex: none;
+}
+
+:where(.side) > .panel {
+  max-height: 100%;
+  overflow: auto;
 }
 
 .piles {
@@ -590,8 +602,8 @@ html:not(.touch) .btn:hover:not(:disabled) {
 }
 
 .log {
-  flex: 1;
-  min-height: 80px;
+  flex: 1 1 0;
+  min-height: 0;
   overflow: auto;
   background: rgba(0, 0, 0, 0.2);
   border: 1px solid var(--line);
@@ -1473,8 +1485,25 @@ html.art .foe {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding-bottom: 10px;
+}
+
+.stash-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Telas largas: o inventário fica de um lado e a bolsa com os anéis do outro, para a barra de baixo ficar baixa
+   e não espremer o painel da direita. */
+@media (min-width: 1100px) {
+  .stash {
+    flex-direction: row;
+    align-items: flex-end;
+    gap: 22px;
+  }
 }
 
 .stash-label {

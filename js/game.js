@@ -48,6 +48,10 @@
     secretFindRadius: 2, // "perto": até 2 casas (em volta, contando diagonais) dentro da sala da porta. Só ao lado, 18% das portas ficavam na rota até a escada (playtests 1 e 2: 0 de 3 achadas)
     wellDeckCards: 3, // poço que enche o deck: cartas novas
     libraryCost: 1, // cartas pagas para levar 1 pergaminho da biblioteca
+    cryptCost: 1, // cripta: cartas pagas da mão para trazer cartas de volta do cemitério
+    cryptTake: 2, // ...e quantas cartas do cemitério voltam ao deck (a escolha é sua)
+    tableWinCards: 2, // mesa de jogo: cartas novas no deck quando a sua aposta é maior que a da casa
+    forgeCost: 1, // oficina: cartas queimadas da mão para melhorar outra
     altarRingFrom: 6, // altar: carta de A a 5 vira um item; 6 a 10 vira um anel; J, Q e K viram anel e item
     altarBothFrom: 11,
     reinforceEnemyBase: 0.1, // chance de um inimigo deixar o pergaminho: este valor mais perPoint × soma das cartas dele
@@ -101,6 +105,8 @@
   const TUTORIAL2_ENEMY = ['dS5', 'dH3']; // as duas à vista: dá para derrubar as duas de uma vez com um ♠
 
   const fail = (error) => ({ ok: false, error });
+  // Janelas das salas especiais que se fecham sem gastar nada (o poço age na hora, não tem janela).
+  const SPECIAL_WINDOWS = ['altar', 'library', 'crypt', 'table', 'forge'];
 
   // A comida que acrescenta cartas novas ao deck (experimento Baralho Finito): a comum e a dourada.
   const FOOD = {
@@ -154,7 +160,7 @@
       this.secretRng = DC.makeRng(`${this.seed}:secrets`); // a cada turno ao lado de uma porta secreta: achou?
       this.wellKnown = new Set(); // cores de poço que você já bebeu (o efeito dessa cor passa a ser conhecido)
       this.wellEffects = {}; // cor do poço -> efeito (sorteado por seed)
-      this.specials = { well: 0, altar: 0, library: 0, secretFound: 0, secretRooms: 0, secretChests: 0 }; // para o relatório
+      this.specials = { well: 0, altar: 0, library: 0, crypt: 0, table: 0, forge: 0, secretFound: 0, secretRooms: 0, secretChests: 0 }; // para o relatório
       // Para onde as cartas vão (só para o relatório): andar, portas e baús, combate, fuga, poder do ♥, armadilhas.
       this.spent = { open: 0, attack: 0, flee: 0, power: 0, trap: 0, spadeAttack: 0, spadeOther: 0, damage: 0, special: 0 };
       this.rings = Array(this.config.ringSlots).fill(null); // anéis no dedo: { id, ring }
@@ -1428,7 +1434,7 @@
       const looks = DC.ROGUE.WELL_LOOKS;
       const effects = rng.shuffle(['mana', 'deck', 'hand']);
       looks.forEach((look, i) => (this.wellEffects[look] = effects[i]));
-      const queue = rng.shuffle(['well', 'altar', 'library']);
+      const queue = rng.shuffle(['well', 'altar', 'library', 'crypt', 'table', 'forge']);
       let uid = 0;
       const costCard = (no, kind) => ({ id: `s${no}x${++uid}`, suit: rng.pick(DC.SUITS), rank: kind === 'altar' ? rng.int(cfg.altarDoorMin, cfg.altarDoorMax) : rng.int(cfg.specialDoorMin, cfg.specialDoorMax) });
       this.floors.forEach((floor, i) => {
@@ -1485,11 +1491,19 @@
     useFixture(x, y) {
       if (!this.canAct()) return fail('Não dá para usar isso agora.');
       const target = this.adjacentFixtures().find((t) => t.x === x && t.y === y);
-      if (!target) return fail('Fique ao lado do poço, do altar ou da estante.');
+      if (!target) return fail('Fique ao lado do objeto da sala.');
       const fx = target.obj;
       if (fx.kind === 'well') return this.drinkWell(fx);
       this.pending = { type: fx.kind, fixtureId: fx.id };
-      this.log(fx.kind === 'altar' ? 'Um altar: sacrifique uma carta da mão em troca de um prêmio.' : 'Uma estante de pergaminhos: pague cartas para levar um.');
+      this.log(
+        {
+          altar: 'Um altar: sacrifique uma carta da mão em troca de um prêmio.',
+          library: 'Uma estante de pergaminhos: pague cartas para levar um.',
+          crypt: 'Uma cripta: pague uma carta e traga de volta cartas do cemitério.',
+          table: 'Uma mesa de jogo: aposte uma carta contra a da casa.',
+          forge: 'Uma oficina: queime uma carta para melhorar outra.',
+        }[fx.kind]
+      );
       return { ok: true, kind: fx.kind, window: true };
     }
 
@@ -1524,7 +1538,7 @@
 
     // Fecha a janela do altar ou da biblioteca sem usar (não gasta turno nem carta).
     closeSpecial() {
-      if (!this.pending || !['altar', 'library'].includes(this.pending.type)) return fail('Nada para fechar.');
+      if (!this.pending || !SPECIAL_WINDOWS.includes(this.pending.type)) return fail('Nada para fechar.');
       this.pending = null;
       return { ok: true };
     }
@@ -1582,6 +1596,102 @@
       const turn = this.passTurn({});
       this.afterAction();
       return { ok: true, kind: 'library', key, cards, combat: Boolean(turn.combat) };
+    }
+
+    // Cripta: pague `cryptCost` cartas da mão e traga de volta `cryptTake` cartas do cemitério (as que você escolher),
+    // que entram no deck em posições aleatórias. Dá vida de volta ao baralho finito: o preço é 1 carta, o ganho é 2.
+    resolveCrypt(graveIds, payIds) {
+      if (!this.pending || this.pending.type !== 'crypt') return fail('Nenhuma cripta aberta.');
+      const cfg = this.config;
+      const pay = this.handCards(payIds);
+      if (!pay || pay.length !== cfg.cryptCost) return fail(`Pague ${cfg.cryptCost} carta${cfg.cryptCost === 1 ? '' : 's'} da mão.`);
+      const ids = [...new Set(graveIds)];
+      const take = this.discard.filter((c) => ids.includes(c.id));
+      const want = Math.min(cfg.cryptTake, this.discard.length);
+      if (want === 0) return fail('O cemitério está vazio: não há o que trazer de volta.');
+      if (ids.length !== want || take.length !== want) return fail(`Escolha ${want} carta${want === 1 ? '' : 's'} do cemitério.`);
+      const fx = this.floor.fixtures[this.pending.fixtureId];
+      this.discard = this.discard.filter((c) => !take.includes(c));
+      this.hand = this.hand.filter((c) => !pay.includes(c));
+      this.discard.push(...pay);
+      this.spent.special += pay.length;
+      this.shuffleIntoDeck(take);
+      fx.used = true;
+      this.pending = null;
+      this.specials.crypt++;
+      this.log(`A cripta devolve ao deck: ${take.map((c) => `${DC.rankLabel(c.rank)}${DC.SUIT_SYMBOL[c.suit]}`).join(', ')}.`, 'good');
+      const turn = this.passTurn({});
+      this.afterAction();
+      return { ok: true, kind: 'crypt', cards: take, paid: pay, combat: Boolean(turn.combat) };
+    }
+
+    // Mesa de jogo: você aposta 1 carta da mão contra uma carta da casa (sorteada na hora, fora do seu deck). Maior
+    // que a da casa: a aposta volta e mais `tableWinCards` cartas novas entram no deck. Igual: a aposta volta. Menor:
+    // a aposta vai para o cemitério. Aposta baixa perde quase sempre mas custa pouco; aposta alta ganha quase sempre.
+    resolveTable(cardId) {
+      if (!this.pending || this.pending.type !== 'table') return fail('Nenhuma mesa aberta.');
+      const bet = this.hand.find((c) => c.id === cardId);
+      if (!bet) return fail('Escolha 1 carta da mão para apostar.');
+      const fx = this.floor.fixtures[this.pending.fixtureId];
+      const house = this.newCards(1)[0];
+      const outcome = bet.rank > house.rank ? 'win' : bet.rank === house.rank ? 'tie' : 'lose';
+      let cards = [];
+      if (outcome === 'lose') {
+        this.hand = this.hand.filter((c) => c !== bet);
+        this.discard.push(bet);
+        this.spent.special++;
+      }
+      if (outcome === 'win') {
+        cards = this.newCards(this.config.tableWinCards);
+        this.shuffleIntoDeck(cards);
+        this.reinforced += cards.length;
+      }
+      fx.used = true;
+      this.pending = null;
+      this.specials.table++;
+      const name = (c) => `${DC.rankLabel(c.rank)}${DC.SUIT_SYMBOL[c.suit]}`;
+      this.log(
+        outcome === 'win'
+          ? `Você aposta ${name(bet)} contra ${name(house)} da casa e ganha: ${cards.length} cartas novas no deck.`
+          : outcome === 'tie'
+            ? `Você aposta ${name(bet)} e a casa tem ${name(house)}: empate, a carta volta para a sua mão.`
+            : `Você aposta ${name(bet)} e a casa tem ${name(house)}: perdeu a carta.`,
+        outcome === 'lose' ? 'bad' : 'good'
+      );
+      const turn = this.passTurn({});
+      this.afterAction();
+      return { ok: true, kind: 'table', outcome, bet, house, cards, combat: Boolean(turn.combat) };
+    }
+
+    // Oficina: queime `forgeCost` carta da mão e melhore outra para sempre: +1 no valor (K não passa; o Ás vira 2) ou
+    // troque o naipe por `mode` ('S', 'H', 'D' ou 'C'). A carta melhorada fica assim até o fim da partida.
+    resolveForge(targetId, burnIds, mode) {
+      if (!this.pending || this.pending.type !== 'forge') return fail('Nenhuma oficina aberta.');
+      const target = this.hand.find((c) => c.id === targetId);
+      if (!target) return fail('Escolha a carta a melhorar.');
+      const burn = this.handCards(burnIds);
+      if (!burn || burn.length !== this.config.forgeCost) return fail(`Escolha ${this.config.forgeCost} carta${this.config.forgeCost === 1 ? '' : 's'} para queimar.`);
+      if (burn.includes(target)) return fail('A carta a melhorar não pode ser a que queima.');
+      if (mode === 'up') {
+        if (target.rank >= 13) return fail('Um K não sobe mais.');
+      } else if (DC.SUITS.includes(mode)) {
+        if (target.suit === mode) return fail('A carta já é desse naipe.');
+      } else return fail('Escolha a melhoria.');
+      const before = { suit: target.suit, rank: target.rank };
+      const fx = this.floor.fixtures[this.pending.fixtureId];
+      if (mode === 'up') target.rank += 1;
+      else target.suit = mode;
+      this.hand = this.hand.filter((c) => !burn.includes(c));
+      this.discard.push(...burn);
+      this.spent.special += burn.length;
+      fx.used = true;
+      this.pending = null;
+      this.specials.forge++;
+      const name = (c) => `${DC.rankLabel(c.rank)}${DC.SUIT_SYMBOL[c.suit]}`;
+      this.log(`A oficina transforma ${name(before)} em ${name(target)}.`, 'good');
+      const turn = this.passTurn({});
+      this.afterAction();
+      return { ok: true, kind: 'forge', card: target, before, burned: burn, mode, combat: Boolean(turn.combat) };
     }
 
     // Usa um item da bolsa (fora de combate e das janelas). Usar descobre o efeito de todos do mesmo tipo.
