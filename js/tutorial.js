@@ -438,6 +438,7 @@
       this.ringsFound = 0;
       this.ringsWorn = 0;
       this.ringUses = 0;
+      this.scrollUses = 0; // pergaminhos de Precisão e do Ladrão usados
       this.ringFoodCards = 0;
       this.steaks = 0;
       this.traps = { dart: 0, back: 0 };
@@ -491,6 +492,9 @@
           break;
         case 'ring-food':
           this.ringFoodCards += data.cards || 0;
+          break;
+        case 'scroll-use':
+          this.scrollUses++;
           break;
         case 'ring-use':
           this.ringUses++;
@@ -555,7 +559,7 @@
       lines.push(`♠ gastos: ${sp.spadeAttack} em combate (valem o número ou o dobro) · ${sp.spadeOther} fora do combate (portas, poder, fuga: o dobro se perde)`);
     }
     lines.push(`Pergaminhos de Inventário: ${stats.scrolls} · cartas guardadas ${stats.stashes} vezes`);
-    lines.push(`Anéis: ${stats.ringsFound} achados, ${stats.ringsWorn} vestidos · no dedo no fim: ${game.rings.filter(Boolean).map((r) => DC.ROGUE.RINGS[r.ring].name).join(', ') || 'nenhum'} · usos de anel: ${stats.ringUses} · cartas do Anel da Comida: ${stats.ringFoodCards}`);
+    lines.push(`Anéis: ${stats.ringsFound} achados, ${stats.ringsWorn} vestidos · no dedo no fim: ${game.rings.filter(Boolean).map((r) => DC.ROGUE.RINGS[r.ring].name).join(', ') || 'nenhum'} · usos de anel: ${stats.ringUses} · pergaminhos de ±1 usados: ${stats.scrollUses} · cartas do Anel da Comida: ${stats.ringFoodCards}`);
     lines.push(`Armadilhas: ${stats.traps.dart} de dardo · ${stats.traps.back} de queda`);
     lines.push(`Comida: ${stats.reinforces} (${stats.reinforces - stats.steaks} maçãs, ${stats.steaks} bifes · ${stats.reinforceCards} cartas novas no deck)`);
     lines.push(`Deck no fim, por naipe: ${['S', 'H', 'D', 'C'].map((suit) => `${DC.SUIT_SYMBOL[suit]} ${game.playerDeck.filter((c) => c.suit === suit).length + game.hand.filter((c) => c.suit === suit).length}`).join(' · ')} (deck + mão)`);

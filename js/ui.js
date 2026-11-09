@@ -329,7 +329,7 @@
       });
       this.el.stash.addEventListener('click', (e) => {
         const bag = e.target.closest('[data-item]');
-        if (bag) return this.useItemClick(bag.dataset.item);
+        if (bag) return this.useItemClick(bag.dataset.item, Number(bag.dataset.dir) || 0);
         const ringBtn = e.target.closest('[data-ring]');
         if (ringBtn) return this.onRingClick(Number(ringBtn.dataset.ring), Number(ringBtn.dataset.dir) || 0);
         const slot = e.target.closest('.stash-slot');
@@ -1397,6 +1397,8 @@
       if (e.target.closest('[data-act], [data-joker]')) return this.onPanelClick(e);
       const ringBtn = e.target.closest('[data-ring]');
       if (ringBtn) return this.onRingClick(Number(ringBtn.dataset.ring), Number(ringBtn.dataset.dir) || 0);
+      const scrollBtn = e.target.closest('[data-item]');
+      if (scrollBtn) return this.useItemClick(scrollBtn.dataset.item, Number(scrollBtn.dataset.dir) || 0);
       const btn = e.target.closest('[data-ov]');
       if (!btn) {
         if (this.help && e.target === this.el.overlay) {
@@ -1681,6 +1683,12 @@
         }
         const def = R.ITEMS[item.item];
         const known = g.identified.has(item.item);
+        if (def.signed) {
+          // Pergaminhos de ±1: dois botões (−1 e +1) para a carta escolhida; usa e some, sem gastar mana.
+          const how = `${R.itemName(g, item.item)}: ${def.text} Escolha 1 carta da mão e toque em −1 ou +1.`;
+          chips += `<div class="bag-slot item ${def.kind} known ring-pm" title="${how}"><i>${R.ICON[def.kind]}</i><span>${def.name}</span><span class="pm"><button type="button" data-item="${item.id}" data-dir="-1">−1</button><button type="button" data-item="${item.id}" data-dir="1">+1</button></span></div>`;
+          continue;
+        }
         const short = known ? def.name : g.looks[item.item];
         const tip = `${R.itemName(g, item.item)}: ${known ? def.text : 'efeito desconhecido, descubra usando'}. Toque para usar.`;
         chips += `<button class="bag-slot item ${def.kind}${known ? ' known' : ''}" data-item="${item.id}" title="${tip}"><i>${R.ICON[def.kind]}</i><span>${short}</span></button>`;
@@ -1711,6 +1719,18 @@
         })
         .join('');
       return `<div class="stash-label">Anéis ${worn}/${g.rings.length}</div><div class="bag-row">${chips}</div>`;
+    }
+
+    // Pergaminhos de Precisão na janela de combate: um par −1/+1 por pergaminho (o Ladrão só vale nas portas).
+    combatScrollsHTML() {
+      const g = this.game;
+      return g.items
+        .filter((it) => DC.ROGUE.ITEMS[it.item].signed && DC.ROGUE.ITEMS[it.item].use === 'fight')
+        .map((it) => {
+          const def = DC.ROGUE.ITEMS[it.item];
+          return ['−1', '+1'].map((t, k) => `<button class="btn ring-btn scroll-btn" data-item="${it.id}" data-dir="${k ? 1 : -1}" title="${def.text}">📜 ${def.name} ${t} (uso único)</button>`).join('');
+        })
+        .join('');
     }
 
     // Botões de anel dentro da janela de combate. Os de ±1 (Precisão) têm um botão para cada sentido.
@@ -1754,8 +1774,28 @@
       this.toastOk(def.suit ? `${label(res.card)}: o anel mudou o naipe (−${g.config.ringUseMana} de mana).` : `${label(res.card)}: ${signed(res.card.boost[def.use])} ${def.use === 'pay' ? 'ao pagar' : 'em combate'} (−${g.config.ringUseMana} de mana).`);
     }
 
-    useItemClick(id) {
+    useItemClick(id, dir = 0) {
       const g = this.game;
+      const item = g.items.find((i) => i.id === id);
+      const def = item && DC.ROGUE.ITEMS[item.item];
+      if (def && def.signed) {
+        // Pergaminho de ±1: precisa de 1 carta escolhida e do sentido; também vale dentro do combate.
+        if (this.busy || (!g.canAct() && !g.canFight())) return this.toast('Não dá para usar itens agora.');
+        if (this.sel.length !== 1) return this.toast(`Escolha 1 carta da mão e toque em −1 ou +1 no Pergaminho de ${def.name}.`);
+        const cardId = this.sel[0];
+        const out = g.useItem(id, cardId, dir);
+        if (!out.ok) return this.reject(out.error);
+        this.track('scroll-use', { scroll: item.item });
+        this.sound('joker');
+        this.renderAll();
+        const el = this.el.overlay.querySelector(`.card[data-id="${cardId}"]`) || this.el.hand.querySelector(`.card[data-id="${cardId}"]`);
+        if (el && this.fxOn) {
+          const c = centerOf(el.getBoundingClientRect());
+          this.ring(c.x, c.y, '#e8dcc0');
+          this.burst(c.x, c.y, { count: 14, color: '#e8dcc0', spread: 60, glyph: dir < 0 ? '−' : '+' });
+        }
+        return this.toastOk(`${label(out.card)}: ${signed(out.card.boost[def.use])} ${def.use === 'pay' ? 'ao pagar' : 'em combate'} (pergaminho usado).`);
+      }
       if (this.busy || !g.canAct()) return this.toast('Não dá para usar itens agora.');
       const res = g.useItem(id);
       if (!res.ok) return this.reject(res.error);
@@ -1820,7 +1860,7 @@
       // Ferrugem: o número da carta não vale mais o que está escrito nela. Mostra o valor de verdade.
       if (this.game.rusted() && card.suit === 'H') text += ` · vale ${this.game.cardValue(card)} (ferrugem)`;
       const boost = card.boost && (card.boost.pay || card.boost.fight);
-      return boost ? `${text} · ${signed(boost)} anel` : text;
+      return boost ? `${text} · ${signed(boost)} ajuste` : text;
     }
 
     cardBadgeText(card) {
@@ -1937,7 +1977,7 @@
       // Fora de combate, 2 ou mais cartas do mesmo naipe numa soma exata dão o bônus maior.
       const flush = exact && !combat && cards.length >= 2 && cards.every((c) => c.suit === cards[0].suit);
       const star = exact ? (combat ? `<span class="exact-tag">★ soma exata${g.config.matchDraw ? ` · +${g.config.matchDraw} carta` : ''}</span>` : `<span class="exact-tag">★ soma exata${flush ? ` · mesmo naipe · +${g.config.flushBonus} cartas` : ` · +${g.config.exactBonus} carta`}</span>`) : '';
-      let html = `<h3>Seleção · soma ${sum}${sums.length > 1 ? ` <small>(ou ${sums.slice(0, -1).join(', ')})</small>` : ''}${ringPlus ? ` <small>(${signed(ringPlus)} de anel)</small>` : ''}${star}</h3><div class="row">${cards.map(miniChip).join('')}</div>`;
+      let html = `<h3>Seleção · soma ${sum}${sums.length > 1 ? ` <small>(ou ${sums.slice(0, -1).join(', ')})</small>` : ''}${ringPlus ? ` <small>(${signed(ringPlus)} de ajuste)</small>` : ''}${star}</h3><div class="row">${cards.map(miniChip).join('')}</div>`;
       if (combat && cards.some((c) => c.suit === 'S')) {
         html += `<p class="muted">♠ vale o número <b>ou o dobro</b> em combate (${cards
           .filter((c) => c.suit === 'S')
@@ -3130,6 +3170,7 @@
           <button class="btn primary" data-ov="attack-go" ${exact ? '' : 'disabled'}>${exact ? `Derrubar ${marked.length} carta${marked.length === 1 ? '' : 's'} (${markedCost})` : 'Derrubar (soma exata)'}</button>
           <button class="btn ${canTrade ? 'danger' : ''}" data-ov="trade-go" ${canTrade ? '' : 'disabled'} title="Preso? Troque 1 carta da mão por 1 carta aberta do inimigo de valor diferente: a diferença queima cartas do seu deck.">${canTrade ? `Trocar ${label(cards[0])} por ${label(marked[0])} · dano ${damage}` : 'Trocar 1 por 1 (dano = diferença)'}</button>
           ${g.rings.map((r, i) => this.combatRingHTML(r, i)).join('')}
+          ${this.combatScrollsHTML()}
           <button class="btn ${last && pick ? 'danger' : ''}" data-ov="flee" ${pick ? '' : 'disabled'}>${fleeLabel}</button>
           <button class="btn" data-act="clear" ${cards.length || marked.length ? '' : 'disabled'}>Limpar seleção</button>
         </div>
@@ -3235,13 +3276,15 @@
           <li><b>♣ Paus:</b> coringa. Vale o próprio número, mas você pode escolher copiar o rank de outra carta da mão.</li>
         </ul>
         <h4>Anéis e mana</h4>
-        <p>Os anéis ficam no dedo (<b>2 espaços</b>). Vêm de <b>baús</b> (metade deles guarda um) e de <b>inimigos</b> (os mais difíceis deixam mais). Ao achar um, você escolhe em que espaço vesti-lo, trocando o que estiver lá, ou deixa para trás. <b>Passivos</b> (valem sozinhos): <b>Mão</b> +1 na mão máxima, <b>Deck</b> +1 carta ao abrir sala nova, <b>Comida</b> porta aberta com soma exata põe 1 carta nova no deck, <b>Mago</b> +4 de mana máxima. <b>Ativos</b> (gastam ${this.game.config.ringUseMana} de mana por uso: escolha 1 carta da mão e toque no anel): <b>Ladrão</b> a carta sobe ou desce 1 ao pagar portas e baús, <b>Precisão</b> a carta sobe ou desce 1 em combate (só aquela carta, uma vez; com ♠ o ajuste entra depois do dobro), e os <b>anéis de naipe</b> (♠ ♥ ♦ ♣) viram a carta daquele naipe até ser usada.</p>
+        <p>Os anéis ficam no dedo (<b>2 espaços</b>). Vêm de <b>baús</b> (metade deles guarda um, e o do <b>andar 1</b> sempre guarda) e de <b>inimigos</b> (os mais difíceis deixam mais). Ao achar um, você escolhe em que espaço vesti-lo, trocando o que estiver lá, ou deixa para trás. <b>Passivos</b> (valem sozinhos): <b>Mão</b> +1 na mão máxima, <b>Deck</b> +1 carta ao abrir sala nova, <b>Comida</b> porta aberta com soma exata põe 1 carta nova no deck, <b>Mago</b> +4 de mana máxima. <b>Ativos</b> (gastam ${this.game.config.ringUseMana} de mana por uso: escolha 1 carta da mão e toque no anel): <b>Ladrão</b> a carta sobe ou desce 1 ao pagar portas e baús, <b>Precisão</b> a carta sobe ou desce 1 em combate (só aquela carta, uma vez; com ♠ o ajuste entra depois do dobro), e os <b>anéis de naipe</b> (♠ ♥ ♦ ♣) viram a carta daquele naipe até ser usada.</p>
         <h4>Névoa</h4>
         <p>Você só enxerga a sala em que está e as salas cujas portas já abriu. Não dá para saber onde fica a escada de saída: é preciso gastar cartas explorando. O botão "Névoa" no topo (ou a tecla F) liga e desliga, útil para testar.</p>
         <h4>Zoom</h4>
         <p>Os botões + e − no canto do mapa (ou as teclas + e −) aproximam e afastam. O zoom tem tamanhos fixos (100% = casas de 40 px, sempre igual), de 60% a 300%. Quando o mapa passa da tela, ele acompanha o seu personagem. Para olhar outras salas, <b>arraste o mapa</b> (em qualquer ponto, inclusive na parte escura). O botão ◎ ao lado do zoom (ou a tecla C) volta para o personagem, e a câmera também volta sozinha quando ele anda.</p>
         <h4>Inimigos</h4>
         <p>Os inimigos <b>começam dormindo</b>. Enquanto você está <b>dentro da sala</b> de um (avermelhada, de qualquer distância), ele pode <b>acordar</b> a cada turno: 2 em 3 para os grandes e 1 em 3 para os ratos, ou seja, quase sempre acordam. Da porta você ainda só espia. Acordado, ele <b>anda uma casa por turno atrás de você</b>, <b>até em outras salas</b> (passa por portas que você já abriu, mas não abre as fechadas), e quando encosta começa o <b>combate</b>. Ele te segue enquanto <b>te vê</b> (uns 9 casas, sem parede no meio; da porta ele só vê em linha reta). Se você sai da vista, ele vai até o último lugar onde te viu (<b>?</b>) e, depois de uns 3 turnos sem te achar, <b>desiste e volta a dormir</b>. Descer a escada também escapa. Você também pode atacar um que dorme, tocando nele. Há <b>ratos</b>: inimigos pequenos de <b>1 carta baixa</b> (1 a 5), que rendem menos (às vezes uma Maçã). Os grandes têm <b>2 cartas</b> (<b>3 nos andares mais fundos e 4 no último</b>). Com 3 ou mais, elas ficam numa <b>formação</b>: uma fila da <b>frente, aberta</b>, e outra <b>atrás, travada</b> (virada de costas), coberta pelas da frente que a tocam. Uma carta travada só vira quando <b>todas</b> as que a cobrem caem. No combate, marque <b>cartas da sua mão</b> e <b>cartas abertas</b> dele: se as <b>somas forem exatamente iguais</b>, as cartas dele caem (qualquer quantidade dos dois lados; ♠ vale o número ou o dobro). Derrubando todas você vence e compra 1 carta; o poder de ♥ funciona ali. <b>Preso, sem soma que bata?</b> Dá para <b>trocar</b> 1 carta da mão por 1 carta aberta dele de valor diferente: a <b>diferença</b> vira <b>dano</b> e essa quantidade de cartas do topo do seu deck queima (se o deck acabar, queima da mão). Por isso sobrar só carta alta no fim sai caro. Dá para <b>fugir</b> descartando 1 carta: o inimigo fica parado por 3 turnos, dando tempo de sair da vista dele (as cartas já derrubadas continuam derrubadas), mas se for a sua última carta você perde.</p>
+        <h4>Pergaminhos de Precisão e do Ladrão</h4>
+        <p>Têm o mesmo efeito dos anéis de mesmo nome, mas são <b>de uso único e não gastam mana</b>: escolha 1 carta da mão e toque em <b>−1</b> ou <b>+1</b> no pergaminho da bolsa (o de <b>Precisão</b> também aparece na janela de combate). A carta sobe ou desce 1 (o Ás não desce e o Rei não sobe) e o pergaminho some. Saem de baús e de inimigos, no mesmo sorteio das poções e do mapa, e têm nome claro (não são misteriosos).</p>
         <h4>Pergaminho de Inventário</h4>
         <p>Cada inimigo tem <b>30% de chance</b> de deixar um pergaminho <b>no lugar da carta de vitória</b>, e <b>30% dos baús</b> o guardam <b>no lugar das cartas</b>. Você já começa com <b>1 slot de brinde</b>, e cada pergaminho abre mais um (até 3 no total) ao lado da mão, onde você <b>guarda cartas</b> para usar depois. Para guardar, escolha 1 carta da mão e toque num slot livre (no baú, marque a carta e toque no slot: ela é guardada em vez de descartada). Toque na carta guardada para devolvê-la à mão. Guardar e devolver é grátis, a qualquer momento, até em combate, mas para <b>usar</b> a carta ela precisa estar na mão (o limite de 7 continua). Se a mão esvaziar mas houver cartas nos slots, você ainda não perdeu.</p>
         <h4>No iPad (toque)</h4>

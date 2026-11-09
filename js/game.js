@@ -48,7 +48,8 @@
     // Ratos: inimigos pequenos de 1 carta baixa, a mais que o deck da dungeon (que agora pode passar de 52 cartas).
     ratsMin: 2, // por andar
     ratsMax: 3,
-    ratRankMax: 5, // a carta do rato vai de 1 a este valor
+    ratRankMin: 3, // a carta do rato vai de 3 a J: no nosso combate carta baixa não é carta fraca,
+    ratRankMax: 11, // os extremos (Ás, 2, Q, K) são os mais difíceis de casar, então o rato fácil fica no meio
     ratFoodChance: 0.1, // chance de um rato derrotado deixar uma Maçã (os outros inimigos dependem das cartas deles)
     itemDropChanceSmall: 0.15, // chance de um rato deixar uma poção ou pergaminho da bolsa
     // Anéis: equipamento com 2 espaços; vêm de baús e de inimigos (mais difíceis, mais chance).
@@ -113,12 +114,12 @@
       this.itemRng = DC.makeRng(`${this.seed}:rogue`); // sorteio à parte: não muda a masmorra de quem não usa
       this.items = [];
       this.itemCount = 0;
-      this.identified = new Set();
+      this.identified = new Set(Object.keys(DC.ROGUE.ITEMS).filter((k) => DC.ROGUE.ITEMS[k].known));
       this.mapped = new Set(); // andares revelados por um pergaminho de mapa
       this.hasteTurns = 0; // Poção de velocidade: quantos turnos os inimigos ainda ficam parados
       this.looks = {};
       for (const kind of Object.keys(DC.ROGUE.LOOKS)) {
-        const keys = Object.keys(DC.ROGUE.ITEMS).filter((k) => DC.ROGUE.ITEMS[k].kind === kind);
+        const keys = Object.keys(DC.ROGUE.ITEMS).filter((k) => DC.ROGUE.ITEMS[k].kind === kind && !DC.ROGUE.ITEMS[k].known);
         const looks = this.itemRng.shuffle(DC.ROGUE.LOOKS[kind].slice());
         keys.forEach((k, i) => (this.looks[k] = looks[i % looks.length]));
       }
@@ -252,7 +253,7 @@
         const spots = DC.placeSmall(rng, floor, rng.int(cfg.ratsMin, cfg.ratsMax), cfg.enemyRange, forbidden);
         for (const spot of spots) {
           const suit = rng.pick(DC.SUITS);
-          const rank = rng.int(1, cfg.ratRankMax);
+          const rank = rng.int(cfg.ratRankMin, cfg.ratRankMax);
           const food = rng.next() < cfg.ratFoodChance ? 'normal' : null;
           floor.enemies.push({
             id: floor.enemies.length,
@@ -289,8 +290,8 @@
       const rings = DC.ROGUE.RINGS;
       const keys = Object.keys(rings);
       const total = keys.reduce((n, k) => n + rings[k].weight, 0);
-      const pick = () => {
-        let roll = rng.next() * total;
+      const pick = (r = rng) => {
+        let roll = r.next() * total;
         for (const k of keys) {
           roll -= rings[k].weight;
           if (roll < 0) return k;
@@ -308,6 +309,13 @@
           chest.ring = rng.next() < (chest.free ? cfg.ringChestFree : cfg.ringChestPaid) ? pick() : null;
           chest.reinforce = chest.ring ? null : chest.free ? 'normal' : 'gold';
         }
+      }
+      // O baú do andar 1 sempre guarda um anel (e continua dando a comida): assim todo jogo começa com um anel à mão.
+      // Sorteio à parte, então os anéis dos outros andares não mudam.
+      const first = this.floors[0].chests[0];
+      if (first) {
+        if (!first.ring) first.ring = pick(DC.makeRng(`${this.seed}:ring1`));
+        first.reinforce = first.free ? 'normal' : 'gold';
       }
     }
 
@@ -629,18 +637,26 @@
         delete this.jokerCopy[card.id];
         this.log(`${def.name}: ${DC.rankLabel(card.rank)}${old} vira ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[def.suit]}.`, 'good');
       } else {
-        if (def.signed && dir !== 1 && dir !== -1) return fail('Escolha se a carta sobe (+1) ou desce (−1).');
-        if (this.boostOf(card, def.use)) return fail('Essa carta já recebeu o ajuste desse anel.');
-        const value = this.cardValue(card);
-        if (dir < 0 && value <= 1) return fail('O Ás não pode descer.');
-        if (dir > 0 && value >= 13) return fail('O Rei não pode subir.');
-        const delta = (def.signed ? dir : 1) * def.amount;
-        card.boost = Object.assign({}, card.boost, { [def.use]: delta });
-        this.log(`${def.name}: ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[card.suit]} ${delta > 0 ? 'sobe' : 'desce'} ${Math.abs(delta)} ${def.use === 'pay' ? 'ao pagar portas e baús' : 'em combate'}.`, 'good');
+        const bad = this.adjustCard(card, def, dir);
+        if (bad) return bad;
       }
       this.spendMana(cost);
       this.afterAction();
       return { ok: true, card };
+    }
+
+    // O ajuste de ±1 de um anel ou pergaminho (Precisão: 'fight', Ladrão: 'pay') numa carta da mão. Devolve um erro
+    // (`fail`) se não puder, ou null se aplicou. Cada carta recebe o ajuste uma vez; o Ás não desce e o Rei não sobe.
+    adjustCard(card, def, dir) {
+      if (dir !== 1 && dir !== -1) return fail('Escolha se a carta sobe (+1) ou desce (−1).');
+      if (this.boostOf(card, def.use)) return fail('Essa carta já recebeu o ajuste desse efeito.');
+      const value = this.cardValue(card);
+      if (dir < 0 && value <= 1) return fail('O Ás não pode descer.');
+      if (dir > 0 && value >= 13) return fail('O Rei não pode subir.');
+      const delta = dir * def.amount;
+      card.boost = Object.assign({}, card.boost, { [def.use]: delta });
+      this.log(`${def.name}: ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[card.suit]} ${delta > 0 ? 'sobe' : 'desce'} ${Math.abs(delta)} ${def.use === 'pay' ? 'ao pagar portas e baús' : 'em combate'}.`, 'good');
+      return null;
     }
 
     // Um anel achado: a pessoa escolhe em que espaço vesti-lo (trocando o que estiver lá) ou deixa para trás.
@@ -1336,7 +1352,16 @@
     // Sorteia um item (poção ou pergaminho) para a bolsa.
     dropItem() {
       const keys = Object.keys(DC.ROGUE.ITEMS);
-      const key = this.itemRng.pick(keys);
+      const total = keys.reduce((n, k) => n + DC.ROGUE.ITEMS[k].weight, 0);
+      let roll = this.itemRng.next() * total;
+      let key = keys[keys.length - 1];
+      for (const k of keys) {
+        roll -= DC.ROGUE.ITEMS[k].weight;
+        if (roll < 0) {
+          key = k;
+          break;
+        }
+      }
       if (this.items.length >= this.config.maxItems) {
         this.log('Você achou um item, mas a bolsa está cheia.', 'bad');
         return null;
@@ -1348,11 +1373,23 @@
     }
 
     // Usa um item da bolsa (fora de combate e das janelas). Usar descobre o efeito de todos do mesmo tipo.
-    useItem(itemId) {
-      if (!this.canAct()) return fail('Não dá para usar itens agora.');
+    useItem(itemId, cardId, dir = 0) {
       const item = this.items.find((i) => i.id === itemId);
+      const def = item && DC.ROGUE.ITEMS[item.item];
+      // Pergaminhos de ±1 também valem dentro do combate (o de Precisão); os outros itens só fora das janelas.
+      if (!(def && def.signed ? this.canAct() || this.canFight() : this.canAct())) return fail('Não dá para usar itens agora.');
       if (!item) return fail('Esse item não está na bolsa.');
       const key = item.item;
+      if (def.signed) {
+        if (this.inCombat() && def.use !== 'fight') return fail(`O Pergaminho de ${def.name} só vale ao pagar portas e baús.`);
+        const card = this.hand.find((c) => c.id === cardId);
+        if (!card) return fail('Escolha 1 carta da mão para o pergaminho.');
+        const bad = this.adjustCard(card, { ...def, name: `Pergaminho de ${def.name}` }, dir);
+        if (bad) return bad;
+        this.items = this.items.filter((i) => i !== item);
+        this.afterAction();
+        return { ok: true, key, card, discovered: false, name: DC.ROGUE.itemName(this, key), text: def.text };
+      }
       const first = !this.identified.has(key);
       let text;
       switch (key) {
@@ -1370,21 +1407,6 @@
           this.mapped.add(this.floorNo);
           text = 'O andar inteiro aparece no mapa.';
           break;
-        case 'teleport': {
-          const cells = [];
-          for (let y = 0; y < this.floor.h; y++) {
-            for (let x = 0; x < this.floor.w; x++) {
-              const cell = this.floor.grid[y][x];
-              if (!['floor', 'start'].includes(cell.type) || !this.visited.has(cell.room)) continue;
-              if ((x === this.player.x && y === this.player.y) || this.nearEnemy(this.floor, x, y)) continue;
-              cells.push({ x, y });
-            }
-          }
-          if (!cells.length) return fail('Não há para onde se teleportar.');
-          this.player = this.itemRng.pick(cells);
-          text = 'Você aparece em outro ponto de uma sala já visitada.';
-          break;
-        }
         default:
           return fail('Item desconhecido.');
       }
@@ -1396,7 +1418,7 @@
       return { ok: true, key, text, discovered: first, name };
     }
 
-    // Tem um inimigo vivo nesta casa ou numa casa ao lado? (teleporte e queda não deixam você aparecer assim)
+    // Tem um inimigo vivo nesta casa ou numa casa ao lado? (a queda por armadilha não deixa você aparecer assim)
     nearEnemy(floor, x, y) {
       return (floor.enemies || []).some((e) => !e.dead && Math.abs(e.x - x) + Math.abs(e.y - y) <= 1);
     }

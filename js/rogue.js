@@ -16,10 +16,13 @@
   };
 
   const ITEMS = {
-    haste: { kind: 'potion', name: 'velocidade', text: 'Você fica rápido: os inimigos ficam parados por 8 turnos.' },
-    poison: { kind: 'potion', name: 'veneno', text: 'As 2 cartas de cima do seu deck vão para o descarte.' },
-    map: { kind: 'scroll', name: 'mapa mágico', text: 'Mostra o andar inteiro, sem névoa.' },
-    teleport: { kind: 'scroll', name: 'teleporte', text: 'Leva você para um ponto sorteado de uma sala já visitada.' },
+    haste: { kind: 'potion', name: 'velocidade', text: 'Você fica rápido: os inimigos ficam parados por 8 turnos.', weight: 2 },
+    poison: { kind: 'potion', name: 'veneno', text: 'As 2 cartas de cima do seu deck vão para o descarte.', weight: 2 },
+    map: { kind: 'scroll', name: 'mapa mágico', text: 'Mostra o andar inteiro, sem névoa.', weight: 2 },
+    // Pergaminhos de ±1: o mesmo efeito dos anéis de Precisão e do Ladrão, mas de uso único e sem gastar mana.
+    // Não são misteriosos (`known`): você precisa saber o que fazem para escolher a carta. `weight` é a chance no sorteio.
+    precision: { kind: 'scroll', name: 'Precisão', text: 'Uma carta da mão sobe ou desce 1 em combate (um 3 vira 2 ou 4). Não gasta mana.', use: 'fight', amount: 1, signed: true, known: true, weight: 2 },
+    thief: { kind: 'scroll', name: 'Ladrão', text: 'Uma carta da mão sobe ou desce 1 ao pagar portas e baús (um 3 vira 2 ou 4). Não gasta mana.', use: 'pay', amount: 1, signed: true, known: true, weight: 1 },
   };
 
   // Aparências sorteadas por seed: a cor da poção e o título do pergaminho não dizem o efeito.
@@ -54,7 +57,7 @@
     if (ring.suit) ring.text = `Gasta mana: escolha 1 carta da mão e ela vira ${{ S: '♠', H: '♥', D: '♦', C: '♣' }[ring.suit]} até ser usada.`;
   }
 
-  // Nome que aparece para a pessoa: o verdadeiro se já descobriu, senão só a aparência.
+  // Nome que aparece para a pessoa: o verdadeiro se já descobriu (ou se o item não é misterioso), senão só a aparência.
   function itemName(game, key) {
     const def = ITEMS[key];
     const noun = def.kind === 'potion' ? 'Poção' : 'Pergaminho';
