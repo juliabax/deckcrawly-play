@@ -32,15 +32,16 @@
 
   // Anéis (experimento Baralho Finito): equipamento que fica no dedo (2 espaços) e modifica as cartas.
   // Passivos (`stat`/`amount`): valem enquanto estão no dedo, sem gastar nada. Ativos gastam MANA (♦) a cada uso:
-  //  - de número (`use`/`amount`): uma carta da mão escolhida ganha +amount ao pagar portas e baús ('pay') ou em combate
-  //    ('fight') até ser usada (uma carta recebe o bônus uma vez só). Assim o +2 não vale para todas as cartas
-  //    sempre, o que estragaria a soma exata, e é você quem escolhe quando pagar;
+  //  - de número (`use`/`amount`/`signed`): uma carta da mão escolhida sobe ou desce `amount` (a pessoa escolhe o
+  //    sentido) ao pagar portas e baús ('pay', Ladrão) ou em combate ('fight', Precisão) até ser usada (uma carta
+  //    recebe o ajuste uma vez só). Serve para fechar a soma exata. Com ♠ o ajuste entra depois do dobro, então o
+  //    3♠ vira 5 ou 7 e os ímpares continuam ao alcance;
   //  - de naipe (`suit`): a carta escolhida vira daquele naipe até ser usada.
   // `weight` é a raridade no sorteio.
   const RINGS = {
     mage: { name: 'Anel do Mago', short: 'Mago', text: '+4 de mana máxima.', stat: 'mana', amount: 4, weight: 2, color: '#4da3ff' },
-    key: { name: 'Anel da Chave', short: 'Chave', text: 'Gasta mana: uma carta da mão ganha +2 ao pagar portas e baús.', use: 'pay', amount: 2, weight: 2, color: '#e7b84a' },
-    warrior: { name: 'Anel do Guerreiro', short: 'Guerreiro', text: 'Gasta mana: uma carta da mão ganha +2 em combate.', use: 'fight', amount: 2, weight: 1, color: '#d6403a' },
+    thief: { name: 'Anel do Ladrão', short: 'Ladrão', text: 'Gasta mana: uma carta da mão sobe ou desce 1 ao pagar portas e baús (um 3 vira 2 ou 4).', use: 'pay', amount: 1, signed: true, weight: 2, color: '#e7b84a' },
+    precision: { name: 'Anel de Precisão', short: 'Precisão', text: 'Gasta mana: uma carta da mão sobe ou desce 1 em combate (um 3 vira 2 ou 4).', use: 'fight', amount: 1, signed: true, weight: 2, color: '#d6403a' },
     hand: { name: 'Anel da Mão', short: 'Mão', text: '+1 carta na mão máxima.', stat: 'hand', amount: 1, weight: 1, color: '#6bd08a' },
     deck: { name: 'Anel do Deck', short: 'Deck', text: 'Ao abrir uma sala nova (ou descer de andar), compra 1 carta a mais.', stat: 'deck', amount: 1, weight: 1, color: '#b48cf2' },
     food: { name: 'Anel da Comida', short: 'Comida', text: 'Ao abrir uma porta com soma exata, 1 carta nova entra no seu deck.', stat: 'food', amount: 1, weight: 1, color: '#c97b3a' },

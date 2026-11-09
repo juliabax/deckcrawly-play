@@ -53,6 +53,9 @@
     return `<svg class="ring-ico" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="15" rx="7.200" ry="6.200" fill="none" stroke="#7a5a1c" stroke-width="3.600" /><ellipse cx="12" cy="15" rx="7.200" ry="6.200" fill="none" stroke="#f1c75a" stroke-width="2.200" /><path d="M8.200 5.600 12 2.200l3.800 3.400L12 9.800z" fill="${def.color}" stroke="#2a2118" stroke-width="1" stroke-linejoin="round" />${glyph}<path d="M9.600 5.400 12 3.400" fill="none" stroke="#fff" stroke-opacity=".7" stroke-width=".9" stroke-linecap="round" /></svg>`;
   }
 
+  // Número com sinal: +1 / −1.
+  const signed = (n) => (n > 0 ? '+' : '−') + Math.abs(n);
+
   function miniHTML(card) {
     return `<span class="mini ${isRed(card.suit) ? 'red' : 'black'}"><b>${DC.rankLabel(card.rank)}</b><i>${sym(card.suit)}</i></span>`;
   }
@@ -328,7 +331,7 @@
         const bag = e.target.closest('[data-item]');
         if (bag) return this.useItemClick(bag.dataset.item);
         const ringBtn = e.target.closest('[data-ring]');
-        if (ringBtn) return this.onRingClick(Number(ringBtn.dataset.ring));
+        if (ringBtn) return this.onRingClick(Number(ringBtn.dataset.ring), Number(ringBtn.dataset.dir) || 0);
         const slot = e.target.closest('.stash-slot');
         if (slot) this.onSlotClick(slot);
       });
@@ -1393,7 +1396,7 @@
       // Poderes, coringa e "limpar seleção" dentro da janela de combate usam o mesmo código do painel.
       if (e.target.closest('[data-act], [data-joker]')) return this.onPanelClick(e);
       const ringBtn = e.target.closest('[data-ring]');
-      if (ringBtn) return this.onRingClick(Number(ringBtn.dataset.ring));
+      if (ringBtn) return this.onRingClick(Number(ringBtn.dataset.ring), Number(ringBtn.dataset.dir) || 0);
       const btn = e.target.closest('[data-ov]');
       if (!btn) {
         if (this.help && e.target === this.el.overlay) {
@@ -1611,7 +1614,7 @@
       this.lowDeckOn = lowDeck;
     }
 
-    // Como usar os anéis ativos (Chave, Guerreiro e de naipe): escolher 1 carta e tocar no anel, gastando mana.
+    // Como usar os anéis ativos (Ladrão, Precisão e de naipe): escolher 1 carta e tocar no anel, gastando mana.
     ringHintHTML() {
       const g = this.game;
       const cost = g.config.ringUseMana;
@@ -1620,7 +1623,7 @@
       const one = this.sel.length === 1;
       const names = active.map((r) => DC.ROGUE.RINGS[r.ring].short).join(', ');
       if (g.mana < cost) return `<p class="muted"><b>Anel (${names}):</b> custa ${cost} de mana e você tem ${g.mana}. Escolha um ♦ e use o botão Poder para ganhar mana.</p>`;
-      if (!one) return `<p class="muted"><b>Anel (${names}):</b> escolha <b>1 carta</b> e toque no anel (linha "Anéis", ao lado da mão). Custa ${cost} de mana; você tem ${g.mana}.</p>`;
+      if (!one) return `<p class="muted"><b>Anel (${names}):</b> escolha <b>1 carta</b> e toque no anel (linha "Anéis", ao lado da mão; nos de ±1, em −1 ou +1). Custa ${cost} de mana; você tem ${g.mana}.</p>`;
       return `<p><b>Anel (${names}):</b> toque nele (linha "Anéis") para usar na carta escolhida. Custa ${cost} de mana; você tem ${g.mana}.</p>`;
     }
 
@@ -1699,24 +1702,45 @@
           const broke = active && g.mana < cost;
           const tip = `${def.name}: ${def.text}${active ? ` Custa ${cost} de mana. Escolha 1 carta e toque no anel.` : ''}`;
           const state = active ? `${cost} mana` : 'no dedo';
+          if (def.signed) {
+            // Anéis de ±1: dois botões, um para subir e outro para descer a carta escolhida.
+            const off = broke ? ' disabled' : '';
+            return `<div class="bag-slot item ring-slot suit ring-pm${broke ? ' spent' : ''}" title="${tip.replace('toque no anel', 'toque em −1 ou +1')}">${ringSVG(ring.ring)}<span>${def.short}</span><small>${state}</small><span class="pm"><button type="button" data-ring="${i}" data-dir="-1"${off}>−1</button><button type="button" data-ring="${i}" data-dir="1"${off}>+1</button></span></div>`;
+          }
           return `<button class="bag-slot item ring-slot${broke ? ' spent' : ''}${active ? ' suit' : ''}" data-ring="${i}" title="${tip}">${ringSVG(ring.ring)}<span>${def.short}</span><small>${state}</small></button>`;
         })
         .join('');
       return `<div class="stash-label">Anéis ${worn}/${g.rings.length}</div><div class="bag-row">${chips}</div>`;
     }
 
-    onRingClick(slot) {
+    // Botões de anel dentro da janela de combate. Os de ±1 (Precisão) têm um botão para cada sentido.
+    combatRingHTML(ring, i) {
+      const g = this.game;
+      const def = ring && DC.ROGUE.RINGS[ring.ring];
+      // Anel de portas e baús (Ladrão) não serve no combate: fica só na linha "Anéis".
+      if (!def || (!def.suit && !def.use) || def.use === 'pay') return '';
+      const cost = g.config.ringUseMana;
+      const off = g.mana >= cost ? '' : 'disabled';
+      const tip = `${def.text} Custa ${cost} de mana.`;
+      if (def.signed) {
+        return ['−1', '+1'].map((t, k) => `<button class="btn ring-btn" data-ring="${i}" data-dir="${k ? 1 : -1}" ${off} title="${tip}">${def.short} ${t} (${cost} mana)</button>`).join('');
+      }
+      return `<button class="btn ring-btn" data-ring="${i}" ${off} title="${tip}">${def.short} ${def.name} (${cost} mana)</button>`;
+    }
+
+    onRingClick(slot, dir = 0) {
       const g = this.game;
       if (this.busy) return;
       const ring = g.rings[slot];
       if (!ring) return;
       const def = DC.ROGUE.RINGS[ring.ring];
+      if (def.signed && !dir) return this.toast(`${def.name}: escolha 1 carta e toque em −1 ou +1.`);
       if (!def.suit && !def.use) return this.toast(`${def.name}: ${def.text} (vale enquanto está no dedo)`);
       if (!g.canAct() && !g.canFight()) return this.toast('Não dá para usar o anel agora.');
       if (g.mana < g.config.ringUseMana) return this.toast(`${def.name} custa ${g.config.ringUseMana} de mana e você tem ${g.mana}. Descarte um ♦ para ganhar mana.`);
       if (this.sel.length !== 1) return this.toast(`Escolha 1 carta da mão e toque no ${def.name}.`);
       const id = this.sel[0];
-      const res = g.useRing(slot, id);
+      const res = g.useRing(slot, id, dir);
       if (!res.ok) return this.reject(res.error);
       this.track('ring-use', { ring: ring.ring });
       this.sound('joker');
@@ -1725,9 +1749,9 @@
       if (el && this.fxOn) {
         const c = centerOf(el.getBoundingClientRect());
         this.ring(c.x, c.y, def.color);
-        this.burst(c.x, c.y, { count: 14, color: def.color, spread: 60, glyph: def.suit ? DC.SUIT_SYMBOL[def.suit] : '+' });
+        this.burst(c.x, c.y, { count: 14, color: def.color, spread: 60, glyph: def.suit ? DC.SUIT_SYMBOL[def.suit] : dir < 0 ? '−' : '+' });
       }
-      this.toastOk(def.suit ? `${label(res.card)}: o anel mudou o naipe (−${g.config.ringUseMana} de mana).` : `${label(res.card)}: +${def.amount} ${def.use === 'pay' ? 'ao pagar' : 'em combate'} (−${g.config.ringUseMana} de mana).`);
+      this.toastOk(def.suit ? `${label(res.card)}: o anel mudou o naipe (−${g.config.ringUseMana} de mana).` : `${label(res.card)}: ${signed(res.card.boost[def.use])} ${def.use === 'pay' ? 'ao pagar' : 'em combate'} (−${g.config.ringUseMana} de mana).`);
     }
 
     useItemClick(id) {
@@ -1796,7 +1820,7 @@
       // Ferrugem: o número da carta não vale mais o que está escrito nela. Mostra o valor de verdade.
       if (this.game.rusted() && card.suit === 'H') text += ` · vale ${this.game.cardValue(card)} (ferrugem)`;
       const boost = card.boost && (card.boost.pay || card.boost.fight);
-      return boost ? `${text} · +${boost} anel` : text;
+      return boost ? `${text} · ${signed(boost)} anel` : text;
     }
 
     cardBadgeText(card) {
@@ -1913,7 +1937,7 @@
       // Fora de combate, 2 ou mais cartas do mesmo naipe numa soma exata dão o bônus maior.
       const flush = exact && !combat && cards.length >= 2 && cards.every((c) => c.suit === cards[0].suit);
       const star = exact ? (combat ? `<span class="exact-tag">★ soma exata${g.config.matchDraw ? ` · +${g.config.matchDraw} carta` : ''}</span>` : `<span class="exact-tag">★ soma exata${flush ? ` · mesmo naipe · +${g.config.flushBonus} cartas` : ` · +${g.config.exactBonus} carta`}</span>`) : '';
-      let html = `<h3>Seleção · soma ${sum}${sums.length > 1 ? ` <small>(ou ${sums.slice(0, -1).join(', ')})</small>` : ''}${ringPlus ? ` <small>(+${ringPlus} de anel)</small>` : ''}${star}</h3><div class="row">${cards.map(miniChip).join('')}</div>`;
+      let html = `<h3>Seleção · soma ${sum}${sums.length > 1 ? ` <small>(ou ${sums.slice(0, -1).join(', ')})</small>` : ''}${ringPlus ? ` <small>(${signed(ringPlus)} de anel)</small>` : ''}${star}</h3><div class="row">${cards.map(miniChip).join('')}</div>`;
       if (combat && cards.some((c) => c.suit === 'S')) {
         html += `<p class="muted">♠ vale o número <b>ou o dobro</b> em combate (${cards
           .filter((c) => c.suit === 'S')
@@ -3105,7 +3129,7 @@
         <div class="actions">
           <button class="btn primary" data-ov="attack-go" ${exact ? '' : 'disabled'}>${exact ? `Derrubar ${marked.length} carta${marked.length === 1 ? '' : 's'} (${markedCost})` : 'Derrubar (soma exata)'}</button>
           <button class="btn ${canTrade ? 'danger' : ''}" data-ov="trade-go" ${canTrade ? '' : 'disabled'} title="Preso? Troque 1 carta da mão por 1 carta aberta do inimigo de valor diferente: a diferença queima cartas do seu deck.">${canTrade ? `Trocar ${label(cards[0])} por ${label(marked[0])} · dano ${damage}` : 'Trocar 1 por 1 (dano = diferença)'}</button>
-          ${g.rings.map((r, i) => (r && (DC.ROGUE.RINGS[r.ring].suit || DC.ROGUE.RINGS[r.ring].use) ? `<button class="btn ring-btn" data-ring="${i}" ${g.mana >= g.config.ringUseMana ? '' : 'disabled'} title="${DC.ROGUE.RINGS[r.ring].text} Custa ${g.config.ringUseMana} de mana.">${DC.ROGUE.RINGS[r.ring].short} ${DC.ROGUE.RINGS[r.ring].name} (${g.config.ringUseMana} mana)</button>` : '')).join('')}
+          ${g.rings.map((r, i) => this.combatRingHTML(r, i)).join('')}
           <button class="btn ${last && pick ? 'danger' : ''}" data-ov="flee" ${pick ? '' : 'disabled'}>${fleeLabel}</button>
           <button class="btn" data-act="clear" ${cards.length || marked.length ? '' : 'disabled'}>Limpar seleção</button>
         </div>
@@ -3211,7 +3235,7 @@
           <li><b>♣ Paus:</b> coringa. Vale o próprio número, mas você pode escolher copiar o rank de outra carta da mão.</li>
         </ul>
         <h4>Anéis e mana</h4>
-        <p>Os anéis ficam no dedo (<b>2 espaços</b>). Vêm de <b>baús</b> (metade deles guarda um) e de <b>inimigos</b> (os mais difíceis deixam mais). Ao achar um, você escolhe em que espaço vesti-lo, trocando o que estiver lá, ou deixa para trás. <b>Passivos</b> (valem sozinhos): <b>Mão</b> +1 na mão máxima, <b>Deck</b> +1 carta ao abrir sala nova, <b>Comida</b> porta aberta com soma exata põe 1 carta nova no deck, <b>Mago</b> +4 de mana máxima. <b>Ativos</b> (gastam ${this.game.config.ringUseMana} de mana por uso: escolha 1 carta da mão e toque no anel): <b>Chave</b> a carta ganha +2 ao pagar portas e baús, <b>Guerreiro</b> a carta ganha +2 em combate (só aquela carta, uma vez), e os <b>anéis de naipe</b> (♠ ♥ ♦ ♣) viram a carta daquele naipe até ser usada.</p>
+        <p>Os anéis ficam no dedo (<b>2 espaços</b>). Vêm de <b>baús</b> (metade deles guarda um) e de <b>inimigos</b> (os mais difíceis deixam mais). Ao achar um, você escolhe em que espaço vesti-lo, trocando o que estiver lá, ou deixa para trás. <b>Passivos</b> (valem sozinhos): <b>Mão</b> +1 na mão máxima, <b>Deck</b> +1 carta ao abrir sala nova, <b>Comida</b> porta aberta com soma exata põe 1 carta nova no deck, <b>Mago</b> +4 de mana máxima. <b>Ativos</b> (gastam ${this.game.config.ringUseMana} de mana por uso: escolha 1 carta da mão e toque no anel): <b>Ladrão</b> a carta sobe ou desce 1 ao pagar portas e baús, <b>Precisão</b> a carta sobe ou desce 1 em combate (só aquela carta, uma vez; com ♠ o ajuste entra depois do dobro), e os <b>anéis de naipe</b> (♠ ♥ ♦ ♣) viram a carta daquele naipe até ser usada.</p>
         <h4>Névoa</h4>
         <p>Você só enxerga a sala em que está e as salas cujas portas já abriu. Não dá para saber onde fica a escada de saída: é preciso gastar cartas explorando. O botão "Névoa" no topo (ou a tecla F) liga e desliga, útil para testar.</p>
         <h4>Zoom</h4>

@@ -2926,6 +2926,29 @@ body.shake main {
   border-color: var(--line);
 }
 
+/* Anéis de ±1 (Ladrão, Precisão): um botão para descer e outro para subir a carta escolhida. */
+.bag-slot.ring-pm .pm {
+  display: flex;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.bag-slot.ring-pm .pm button {
+  min-width: 34px;
+  min-height: 28px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.bag-slot.ring-pm .pm button:disabled {
+  opacity: 0.5;
+}
+
 .ring-big {
   display: flex;
   justify-content: center;

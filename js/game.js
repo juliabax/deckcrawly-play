@@ -282,7 +282,7 @@
     }
 
     // Sorteia (pela seed, num sorteio à parte) quais baús e inimigos deixam um anel, e qual (anéis comuns saem
-    // mais; o do Guerreiro, o da Mão e o do Deck são mais raros).
+    // mais; o da Mão e o do Deck são mais raros).
     planRings() {
       const cfg = this.config;
       const rng = this.ringRng;
@@ -542,11 +542,11 @@
       return card.suit === 'S' ? value * 2 : value;
     }
 
-    // A soma de uma jogada de combate inclui o bônus do Anel do Guerreiro. Com ♠ é a soma MAIOR (todos dobrados):
+    // A soma de uma jogada de combate inclui o ajuste do Anel de Precisão. Com ♠ é a soma MAIOR (todos dobrados):
     // é a que derruba mais, mas o ♠ também pode valer só o número (veja attackSums).
     attackSum(ids) {
       const cards = this.handCards(ids);
-      return cards && cards.length ? cards.reduce((sum, c) => sum + this.attackValue(c) + this.boostOf(c, 'fight'), 0) : 0;
+      return cards && cards.length ? cards.reduce((sum, c) => sum + Math.max(1, this.attackValue(c) + this.boostOf(c, 'fight')), 0) : 0;
     }
 
     // Todas as somas possíveis de uma jogada de combate, da menor para a maior: cada ♠ vale o número OU o dobro
@@ -559,16 +559,16 @@
         const value = this.cardValue(c);
         const options = c.suit === 'S' ? [value, value * 2] : [value];
         const next = new Set();
-        for (const s of sums) for (const o of options) next.add(s + o + this.boostOf(c, 'fight'));
+        for (const s of sums) for (const o of options) next.add(s + Math.max(1, o + this.boostOf(c, 'fight')));
         sums = next;
       }
       return [...sums].sort((a, b) => a - b);
     }
 
-    // A soma para pagar portas e baús inclui o +2 que um Anel da Chave pôs em cada carta.
+    // A soma para pagar portas e baús inclui o ±1 que um Anel do Ladrão pôs em cada carta.
     payTotal(ids) {
       const cards = this.handCards(ids);
-      return cards && cards.length ? cards.reduce((sum, c) => sum + this.cardValue(c) + this.boostOf(c, 'pay'), 0) : 0;
+      return cards && cards.length ? cards.reduce((sum, c) => sum + Math.max(1, this.cardValue(c) + this.boostOf(c, 'pay')), 0) : 0;
     }
 
     // Bônus que um anel pôs numa carta específica ('pay' vale ao pagar, 'fight' vale em combate).
@@ -610,9 +610,10 @@
     }
 
     // Usar um anel gasta mana (config.ringUseMana). Anel de naipe: a carta escolhida vira daquele naipe até ser usada.
-    // Anel de número (Chave, Guerreiro): a carta escolhida ganha +2 (ao pagar portas e baús, ou em combate) até ser usada;
-    // uma carta só recebe esse bônus uma vez. Os outros anéis valem sozinhos, sem gastar nada.
-    useRing(slot, cardId) {
+    // Anel de número (Ladrão, Precisão): a carta escolhida sobe (`dir` +1) ou desce (`dir` −1) 1 ponto (ao pagar portas
+    // e baús, ou em combate) até ser usada; uma carta só recebe esse ajuste uma vez e o Ás não desce nem o Rei sobe.
+    // Os outros anéis valem sozinhos, sem gastar nada.
+    useRing(slot, cardId, dir = 0) {
       if (!this.canAct() && !this.canFight()) return fail('Não dá para usar o anel agora.');
       const ring = this.rings[slot];
       const def = ring && DC.ROGUE.RINGS[ring.ring];
@@ -628,9 +629,14 @@
         delete this.jokerCopy[card.id];
         this.log(`${def.name}: ${DC.rankLabel(card.rank)}${old} vira ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[def.suit]}.`, 'good');
       } else {
-        if (this.boostOf(card, def.use)) return fail('Essa carta já recebeu o bônus desse anel.');
-        card.boost = Object.assign({}, card.boost, { [def.use]: def.amount });
-        this.log(`${def.name}: ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[card.suit]} ganha +${def.amount} ${def.use === 'pay' ? 'ao pagar portas e baús' : 'em combate'}.`, 'good');
+        if (def.signed && dir !== 1 && dir !== -1) return fail('Escolha se a carta sobe (+1) ou desce (−1).');
+        if (this.boostOf(card, def.use)) return fail('Essa carta já recebeu o ajuste desse anel.');
+        const value = this.cardValue(card);
+        if (dir < 0 && value <= 1) return fail('O Ás não pode descer.');
+        if (dir > 0 && value >= 13) return fail('O Rei não pode subir.');
+        const delta = (def.signed ? dir : 1) * def.amount;
+        card.boost = Object.assign({}, card.boost, { [def.use]: delta });
+        this.log(`${def.name}: ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[card.suit]} ${delta > 0 ? 'sobe' : 'desce'} ${Math.abs(delta)} ${def.use === 'pay' ? 'ao pagar portas e baús' : 'em combate'}.`, 'good');
       }
       this.spendMana(cost);
       this.afterAction();
