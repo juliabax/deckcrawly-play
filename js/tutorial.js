@@ -575,6 +575,26 @@
     return lines.join('\n');
   }
 
+  // Repositório (privado) que recebe os relatórios como issues: o botão do fim da partida abre a página de nova issue
+  // já preenchida, e só falta tocar em "Submit new issue". A Claude lê as issues pelo `gh issue list`.
+  const ISSUE_REPO = 'juliabax/deckcrawly';
+  const ISSUE_URL_MAX = 7000; // o GitHub recusa endereços muito longos (uns 8 mil caracteres)
+
+  // Endereço da página "nova issue" do GitHub com o título e o relatório já preenchidos (label "playtest").
+  function issueURL(game, text) {
+    const result = game.status === 'won' ? 'VENCEU' : game.status === 'lost' ? 'PERDEU' : 'em andamento';
+    const title = game.tutorial ? `Playtest do tutorial: ${result}` : `Playtest: ${result} · seed ${game.seed} · andar ${game.floorNo}`;
+    const make = (body) => `https://github.com/${ISSUE_REPO}/issues/new?labels=playtest&title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
+    let report = text;
+    let url = make('```\n' + report + '\n```');
+    // Relatório gigante (muitas respostas): corta o fim até caber.
+    while (url.length > ISSUE_URL_MAX && report.length > 200) {
+      report = report.slice(0, Math.floor(report.length * 0.9));
+      url = make('```\n' + report + '\n…(cortado)\n```');
+    }
+    return url;
+  }
+
   // Resumo de como foi o tutorial, para o relatório.
   function tutorialSummary(tutor) {
     if (tutor.active) return `em andamento (passo ${tutor.index + 1} de ${STEPS.length}: ${STEPS[tutor.index].id})`;
@@ -597,5 +617,6 @@
   DC.Tutorial = Tutorial;
   DC.Stats = Stats;
   DC.buildReport = buildReport;
+  DC.issueURL = issueURL;
   DC.tutorialSummary = tutorialSummary;
 })(typeof window !== 'undefined' ? window : globalThis);

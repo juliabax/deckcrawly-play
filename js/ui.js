@@ -1502,6 +1502,9 @@
         case 'copy-report':
           this.copyReport();
           break;
+        case 'send-report':
+          this.sendReport();
+          break;
         case 'close-report':
           this.reportView = false;
           this.renderOverlay();
@@ -2797,6 +2800,14 @@
       this.renderOverlay();
     }
 
+    // Abre a página de nova issue do GitHub com o relatório preenchido (a pessoa só confirma). Se o navegador
+    // bloquear a janela, cai na cópia para a área de transferência.
+    sendReport() {
+      const win = window.open(DC.issueURL(this.game, this.reportText()), '_blank');
+      if (win) win.opener = null;
+      else this.copyReport();
+    }
+
     reportText() {
       return DC.buildReport(this.game, this.stats, {
         screen: `${window.innerWidth}x${window.innerHeight}`,
@@ -3169,6 +3180,7 @@
           ${DC.TUTORIAL_TEXT.questions
             .map((q) => `<label>${q.label}<input type="text" data-note="${q.id}" maxlength="200" autocomplete="off" value="${(this.notes[q.id] || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')}" /></label>`)
             .join('')}
+          <button class="btn primary" data-ov="send-report" title="Abre o GitHub com o relatório já preenchido: é só tocar em Submit new issue">Enviar relatório (abre o GitHub)</button>
           <button class="btn" data-ov="copy-report">Copiar relatório</button>
         </div>
         <div class="actions">
