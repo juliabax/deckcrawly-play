@@ -41,11 +41,14 @@
     specialFromFloor: 2,
     specialDoorMin: 3, // a porta dessas salas custa de 3 a 10 (carta sorteada à parte, não sai do deck da dungeon)
     specialDoorMax: 10,
+    altarDoorMin: 2, // a porta do altar é mais barata (2 a 6): o relatório dos playtests 1 e 2 mostrou o altar ignorado (0 de 3)
+    altarDoorMax: 6,
     secretChance: 0.5, // chance de um andar (do 2 em diante) ter sala secreta
-    secretFindChance: 0.4, // chance por turno de achar a porta secreta estando ao lado dela
+    secretFindChance: 0.4, // chance por turno de achar a porta secreta estando perto dela
+    secretFindRadius: 2, // "perto": até 2 casas (em volta, contando diagonais) dentro da sala da porta. Só ao lado, 18% das portas ficavam na rota até a escada (playtests 1 e 2: 0 de 3 achadas)
     wellDeckCards: 3, // poço que enche o deck: cartas novas
     libraryCost: 1, // cartas pagas para levar 1 pergaminho da biblioteca
-    altarRingFrom: 7, // altar: carta de 2 a 6 vira um item; 7 a 10 vira um anel; J, Q e K viram anel e item
+    altarRingFrom: 6, // altar: carta de A a 5 vira um item; 6 a 10 vira um anel; J, Q e K viram anel e item
     altarBothFrom: 11,
     reinforceEnemyBase: 0.1, // chance de um inimigo deixar o pergaminho: este valor mais perPoint × soma das cartas dele
     reinforceEnemyPerPoint: 0.015,
@@ -1426,7 +1429,7 @@
       looks.forEach((look, i) => (this.wellEffects[look] = effects[i]));
       const queue = rng.shuffle(['well', 'altar', 'library']);
       let uid = 0;
-      const costCard = (no) => ({ id: `s${no}x${++uid}`, suit: rng.pick(DC.SUITS), rank: rng.int(cfg.specialDoorMin, cfg.specialDoorMax) });
+      const costCard = (no, kind) => ({ id: `s${no}x${++uid}`, suit: rng.pick(DC.SUITS), rank: kind === 'altar' ? rng.int(cfg.altarDoorMin, cfg.altarDoorMax) : rng.int(cfg.specialDoorMin, cfg.specialDoorMax) });
       this.floors.forEach((floor, i) => {
         floor.fixtures = [];
         const no = i + 1;
@@ -1435,7 +1438,7 @@
         const roll = rng.next();
         const kind = queue.splice(Math.min(queue.length - 1, roll < 0.6 ? 0 : roll < 0.9 ? 1 : 2), 1)[0];
         queue.push(kind);
-        const built = DC.addDeadEnd(floor, rng, { kind, cost: costCard(no) });
+        const built = DC.addDeadEnd(floor, rng, { kind, cost: costCard(no, kind) });
         if (built) {
           const fx = { id: floor.fixtures.length, x: built.cell.x, y: built.cell.y, kind, used: false };
           if (kind === 'well') fx.look = rng.pick(looks);
@@ -1461,7 +1464,9 @@
       const f = this.floor;
       for (const door of f.doors) {
         if (!door.secret || door.found) continue;
-        if (Math.abs(door.x - this.player.x) + Math.abs(door.y - this.player.y) !== 1) continue;
+        // Perto: até `secretFindRadius` casas (contando diagonais), e na sala da porta (nunca através da parede).
+        if (Math.max(Math.abs(door.x - this.player.x), Math.abs(door.y - this.player.y)) > this.config.secretFindRadius) continue;
+        if (f.grid[this.player.y][this.player.x].room !== door.a) continue;
         if (this.secretRng.next() >= this.config.secretFindChance) continue;
         door.found = true;
         f.grid[door.y][door.x] = { type: 'door', room: null, ref: door.id };
@@ -1523,7 +1528,7 @@
       return { ok: true };
     }
 
-    // O que o altar dá pelo valor da carta sacrificada: 2 a 6 um item, 7 a 10 um anel, J, Q e K um anel e um item.
+    // O que o altar dá pelo valor da carta sacrificada: A a 5 um item, 6 a 10 um anel, J, Q e K um anel e um item.
     altarPrize(rank) {
       return rank >= this.config.altarBothFrom ? 'both' : rank >= this.config.altarRingFrom ? 'ring' : 'item';
     }
