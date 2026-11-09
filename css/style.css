@@ -3135,3 +3135,68 @@ body.shake main {
 .no-fx .pill.hungry {
   animation: none;
 }
+
+/* ---- Salas especiais: poço, altar e biblioteca (e a sala secreta) ---- */
+.fixture {
+  position: absolute;
+  left: 4%;
+  top: 4%;
+  width: 92%;
+  height: 92%;
+}
+
+.fixture.used {
+  opacity: 0.55;
+  filter: grayscale(0.7);
+}
+
+.t-floor.sp-room {
+  background: #2f2c4d;
+}
+
+.t-floor.sp-room.alt {
+  background: #36325a;
+}
+
+html.art .t-floor.sp-room.spr::before {
+  background: rgba(120, 100, 220, 0.22);
+}
+
+.tile.t-fixture {
+  cursor: pointer;
+}
+
+.special-big {
+  display: flex;
+  justify-content: center;
+}
+
+.special-big .fixture {
+  position: static;
+  width: 84px;
+  height: 84px;
+  filter: drop-shadow(0 0 10px rgba(241, 199, 90, 0.45));
+}
+
+.offers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin: 10px 0;
+}
+
+.offers .btn.offer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  max-width: 190px;
+  text-align: center;
+}
+
+.offers .btn.offer small {
+  font-size: 11px;
+  opacity: 0.85;
+  font-weight: 400;
+}

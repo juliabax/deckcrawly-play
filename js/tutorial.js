@@ -560,6 +560,8 @@
     }
     lines.push(`Pergaminhos de Inventário: ${stats.scrolls} · cartas guardadas ${stats.stashes} vezes`);
     lines.push(`Anéis: ${stats.ringsFound} achados, ${stats.ringsWorn} vestidos · no dedo no fim: ${game.rings.filter(Boolean).map((r) => DC.ROGUE.RINGS[r.ring].name).join(', ') || 'nenhum'} · usos de anel: ${stats.ringUses} · pergaminhos de ±1 usados: ${stats.scrollUses} · cartas do Anel da Comida: ${stats.ringFoodCards}`);
+    const sp = game.specials;
+    lines.push(`Salas especiais: poço ${sp.well}, altar ${sp.altar}, biblioteca ${sp.library} usados · salas secretas na masmorra: ${sp.secretRooms}, portas achadas: ${sp.secretFound}, baús abertos: ${sp.secretChests} · cartas gastas em salas especiais: ${game.spent.special}`);
     lines.push(`Armadilhas: ${stats.traps.dart} de dardo · ${stats.traps.back} de queda`);
     lines.push(`Comida: ${stats.reinforces} (${stats.reinforces - stats.steaks} maçãs, ${stats.steaks} bifes · ${stats.reinforceCards} cartas novas no deck)`);
     lines.push(`Deck no fim, por naipe: ${['S', 'H', 'D', 'C'].map((suit) => `${DC.SUIT_SYMBOL[suit]} ${game.playerDeck.filter((c) => c.suit === suit).length + game.hand.filter((c) => c.suit === suit).length}`).join(' · ')} (deck + mão)`);

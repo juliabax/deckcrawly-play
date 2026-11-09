@@ -126,6 +126,99 @@
     return free.length ? rng.pick(free) : corners[0];
   }
 
+  // Acrescenta um beco sem saída 3×3 a um andar que já está pronto (sala especial ou sala secreta): uma sala nova
+  // encostada numa sala qualquer, ligada por uma única porta. Usa só o sorteio `rng` que receber (o da masmorra não
+  // é tocado) e só cresce para a direita e para baixo, então nada que já existe muda de lugar. Devolve
+  // { room, door, cell } (`cell` é a casa mais longe da porta, onde fica o poço, o altar, a estante ou o baú) ou null
+  // se não achou lugar. `spec.secret`: a porta nasce escondida (parece parede até ser achada) e `spec.cost` é a carta
+  // de custo da porta.
+  function addDeadEnd(floor, rng, spec) {
+    const [rh, rw] = TREASURE_TEMPLATE;
+    const hosts = rng.shuffle(floor.rooms.filter((r) => ['normal', 'treasure', 'start', 'exit'].includes(r.kind)));
+    const pickups = floor.pickups || [];
+    const traps = floor.traps || [];
+    for (const parent of hosts) {
+      for (const side of rng.shuffle([0, 1, 2, 3])) {
+        for (let k = 0; k < 6; k++) {
+          const { room, door, orient } = placeAdjacent(rng, parent, side, rw, rh);
+          if (room.x < 1 || room.y < 1) continue;
+          if (!floor.rooms.every((r) => separated(r, room))) continue;
+          // A moldura da sala nova só pode pegar chão vazio ou parede (nunca porta, baú, poço...).
+          let free = true;
+          for (let y = room.y - 1; y <= room.y + room.h && free; y++) {
+            for (let x = room.x - 1; x <= room.x + room.w && free; x++) {
+              const c = cellAt(floor, x, y);
+              const inside = x >= room.x && x < room.x + room.w && y >= room.y && y < room.y + room.h;
+              if (c && (inside ? c.type !== 'void' : !['void', 'wall'].includes(c.type))) free = false;
+            }
+          }
+          if (!free) continue;
+          const doorCell = cellAt(floor, door.x, door.y);
+          if (!doorCell || doorCell.type !== 'wall' || doorCell.secret !== undefined) continue;
+          if (DIRS.some(([dx, dy]) => { const c = cellAt(floor, door.x + dx, door.y + dy); return c && (c.type === 'door' || c.secret !== undefined); })) continue;
+          // A casa de dentro da sala-pai, logo antes da porta: tem que ser chão livre (sem inimigo, comida ou armadilha).
+          const dx = side === 0 ? -1 : side === 1 ? 1 : 0;
+          const dy = side === 2 ? -1 : side === 3 ? 1 : 0;
+          const inner = { x: door.x + dx, y: door.y + dy };
+          const ic = cellAt(floor, inner.x, inner.y);
+          if (!ic || ic.type !== 'floor' || doorAdjacent(floor, inner.x, inner.y) || enemyAt(floor, inner.x, inner.y)) continue;
+          if (pickups.some((p) => p.x === inner.x && p.y === inner.y) || traps.some((t) => t.x === inner.x && t.y === inner.y)) continue;
+          return commitDeadEnd(floor, rng, room, door, orient, { x: door.x - dx, y: door.y - dy }, spec);
+        }
+      }
+    }
+    return null;
+  }
+
+  function commitDeadEnd(floor, rng, room, door, orient, entry, spec) {
+    // Cresce a grade para a direita e para baixo, se a sala nova (com a moldura) passar do que existe.
+    const needW = room.x + room.w + 1;
+    const needH = room.y + room.h + 1;
+    const blank = () => ({ type: 'void', room: null, ref: null });
+    if (floor.w < needW) {
+      for (const row of floor.grid) while (row.length < needW) row.push(blank());
+      floor.w = needW;
+    }
+    while (floor.h < needH) {
+      floor.grid.push(Array.from({ length: floor.w }, blank));
+      floor.h++;
+    }
+    const parentId = floor.grid[door.y - (entry.y - door.y)][door.x - (entry.x - door.x)].room;
+    const kind = spec.kind;
+    const id = floor.rooms.length;
+    floor.rooms.push({ id, ...room, kind });
+    for (let y = room.y - 1; y <= room.y + room.h; y++) {
+      for (let x = room.x - 1; x <= room.x + room.w; x++) {
+        const inside = x >= room.x && x < room.x + room.w && y >= room.y && y < room.y + room.h;
+        const cell = floor.grid[y][x];
+        if (inside) {
+          cell.type = 'floor';
+          cell.room = id;
+        } else if (cell.type === 'void') {
+          cell.type = 'wall';
+        }
+      }
+    }
+    const link = { id: floor.doors.length, x: door.x, y: door.y, orient, a: parentId, b: id, cost: spec.cost, open: false, secret: Boolean(spec.secret), found: false, extra: true };
+    floor.doors.push(link);
+    // Porta secreta: continua sendo parede no mapa (guarda o número da porta em `secret`) até alguém a achar.
+    floor.grid[door.y][door.x] = spec.secret ? { type: 'wall', room: null, ref: null, secret: link.id } : { type: 'door', room: null, ref: link.id };
+    // A casa mais longe da entrada da sala nova.
+    let best = [];
+    let far = -1;
+    for (let y = room.y; y < room.y + room.h; y++) {
+      for (let x = room.x; x < room.x + room.w; x++) {
+        const d = Math.abs(x - entry.x) + Math.abs(y - entry.y);
+        if (d > far) {
+          far = d;
+          best = [];
+        }
+        if (d === far) best.push({ x, y });
+      }
+    }
+    return { room: floor.rooms[id], door: link, cell: rng.pick(best) };
+  }
+
   function tryBuild(rng, cfg, drawCost) {
     const normalCount = rng.int(cfg.roomsMin, cfg.roomsMax);
     const rooms = [];
@@ -611,5 +704,17 @@
     return targets;
   }
 
-  Object.assign(DC, { generateFloor, tutorialFloor, tutorialFloor2, cellAt, reach, pathTo, adjacentTargets, placeEnemies, placeSmall, placePickup, enemyAt, enemyHere, inWakeZone, chaseStep, canSee, enemyCanEnter, enemyZone, blocksRoom, DIRS });
+  // Poços, altares e estantes (salas especiais) ainda não usados, encostados na posição dada.
+  function adjacentFixtures(floor, pos) {
+    const found = [];
+    for (const [dx, dy] of DIRS) {
+      const x = pos.x + dx;
+      const y = pos.y + dy;
+      const cell = cellAt(floor, x, y);
+      if (cell && cell.type === 'fixture' && !(floor.fixtures || [])[cell.ref].used) found.push({ kind: 'fixture', x, y, obj: floor.fixtures[cell.ref] });
+    }
+    return found;
+  }
+
+  Object.assign(DC, { addDeadEnd, adjacentFixtures, generateFloor, tutorialFloor, tutorialFloor2, cellAt, reach, pathTo, adjacentTargets, placeEnemies, placeSmall, placePickup, enemyAt, enemyHere, inWakeZone, chaseStep, canSee, enemyCanEnter, enemyZone, blocksRoom, DIRS });
 })(typeof window !== 'undefined' ? window : globalThis);

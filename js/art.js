@@ -104,6 +104,7 @@
       }
       case 'floor':
       case 'chest':
+      case 'fixture':
         return one('tiles', floorSprite(x, y));
       // A escada de entrada tem peça própria (assets/pixel/escada-origem.png, por cima do piso): a da folha
       // só tem degraus de descida, e a entrada precisa parecer vir de cima.

@@ -66,5 +66,14 @@
     return def.kind === 'potion' ? `Poção ${look}` : `Pergaminho ${look}`;
   }
 
-  DC.ROGUE = { ABILITIES, ITEMS, LOOKS, ICON, RINGS, itemName };
+  // Cores da água dos poços das salas especiais: cada cor tem um efeito (mana, cartas novas no deck ou encher a mão),
+  // sorteado por seed, e só se descobre bebendo.
+  const WELL_LOOKS = ['azul', 'verde', 'dourada'];
+  const WELL_EFFECTS = {
+    mana: { name: 'mana', text: 'Enche a sua mana.' },
+    deck: { name: 'cartas novas', text: 'Põe cartas novas no seu deck.' },
+    hand: { name: 'mão cheia', text: 'Compra cartas até encher a sua mão.' },
+  };
+
+  DC.ROGUE = { ABILITIES, ITEMS, LOOKS, ICON, RINGS, WELL_LOOKS, WELL_EFFECTS, itemName };
 })(typeof window !== 'undefined' ? window : globalThis);

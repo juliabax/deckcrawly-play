@@ -36,6 +36,17 @@
     // (sorteadas como se saíssem de um baralho completo) em posições aleatórias do deck.
     reinforceCards: 2, // cartas da Maçã (era 3: o relatório do playtest 4 mostrou comida demais, venceu com 28 cartas sobrando)
     reinforceGoldCards: 3, // cartas do Bife (era 5)
+    // Salas especiais (ideia da Julia, inspirada no Shattered Pixel Dungeon): do andar 2 em diante, 1 beco sem saída extra
+    // por andar (poço, altar ou biblioteca, de uma fila sorteada por partida) e, às vezes, uma sala secreta.
+    specialFromFloor: 2,
+    specialDoorMin: 3, // a porta dessas salas custa de 3 a 10 (carta sorteada à parte, não sai do deck da dungeon)
+    specialDoorMax: 10,
+    secretChance: 0.5, // chance de um andar (do 2 em diante) ter sala secreta
+    secretFindChance: 0.4, // chance por turno de achar a porta secreta estando ao lado dela
+    wellDeckCards: 3, // poço que enche o deck: cartas novas
+    libraryCost: 1, // cartas pagas para levar 1 pergaminho da biblioteca
+    altarRingFrom: 7, // altar: carta de 2 a 6 vira um item; 7 a 10 vira um anel; J, Q e K viram anel e item
+    altarBothFrom: 11,
     reinforceEnemyBase: 0.1, // chance de um inimigo deixar o pergaminho: este valor mais perPoint × soma das cartas dele
     reinforceEnemyPerPoint: 0.015,
     reinforceGoldEnemy: 0.25, // chance de ser dourado, para inimigos de 3 cartas ou mais
@@ -136,8 +147,13 @@
       this.ratCount = 0;
       this.chestRng = DC.makeRng(`${this.seed}:chests`); // quais baús são destrancados (grátis)
       this.ringCount = 0;
+      this.specialRng = DC.makeRng(`${this.seed}:specials`); // salas especiais e secretas: onde, quais, o que dão
+      this.secretRng = DC.makeRng(`${this.seed}:secrets`); // a cada turno ao lado de uma porta secreta: achou?
+      this.wellKnown = new Set(); // cores de poço que você já bebeu (o efeito dessa cor passa a ser conhecido)
+      this.wellEffects = {}; // cor do poço -> efeito (sorteado por seed)
+      this.specials = { well: 0, altar: 0, library: 0, secretFound: 0, secretRooms: 0, secretChests: 0 }; // para o relatório
       // Para onde as cartas vão (só para o relatório): andar, portas e baús, combate, fuga, poder do ♥, armadilhas.
-      this.spent = { open: 0, attack: 0, flee: 0, power: 0, trap: 0, spadeAttack: 0, spadeOther: 0, damage: 0 };
+      this.spent = { open: 0, attack: 0, flee: 0, power: 0, trap: 0, spadeAttack: 0, spadeOther: 0, damage: 0, special: 0 };
       this.rings = Array(this.config.ringSlots).fill(null); // anéis no dedo: { id, ring }
       // Turnos e mana (experimento Turnos): cada passo e cada porta aberta é 1 turno.
       this.turn = 0;
@@ -233,6 +249,7 @@
       this.planChests();
       this.planRings();
       this.planRats();
+      this.planSpecials();
       // Todo inimigo começa dormindo e parado (acorda quando você chega perto, como no Rogue).
       for (const floor of this.floors) {
         for (const enemy of floor.enemies) {
@@ -452,7 +469,9 @@
     dungeonRemaining() {
       let n = 0;
       for (const f of this.floors) {
-        n += f.doors.filter((d) => !d.open).length + f.chests.filter((c) => !c.open && !c.free).length;
+        // As salas especiais e secretas (`extra`) não entram na conta: a carta de custo delas não sai do deck da dungeon
+        // e a porta secreta nem pode aparecer aqui antes de ser achada.
+        n += f.doors.filter((d) => !d.open && !d.extra).length + f.chests.filter((c) => !c.open && !c.free && !c.extra).length;
         for (const e of f.enemies) if (!e.dead) n += e.cards.length - e.down.length;
       }
       return n;
@@ -850,6 +869,7 @@
       this.turn++;
       this.turnsByFloor[this.floorNo] = (this.turnsByFloor[this.floorNo] || 0) + 1;
       this.tickHunger(result);
+      this.noticeSecrets(result);
       if (this.status !== 'playing' || this.pending) return result;
       const f = this.floor;
       const hero = this.player;
@@ -950,7 +970,7 @@
     // A caminhada automática deve parar? Quando algo muda: combate, armadilha, comida achada, descida, um inimigo
     // acordando ou perseguindo você, ou uma janela aberta.
     stopWalking(result) {
-      return Boolean(result.combat || result.trap || result.descended || (result.picked && result.picked.length) || (result.woke && result.woke.length) || this.pending || this.status !== 'playing' || this.chasers().length);
+      return Boolean(result.combat || result.trap || result.descended || result.secretFound || (result.picked && result.picked.length) || (result.woke && result.woke.length) || this.pending || this.status !== 'playing' || this.chasers().length);
     }
 
     // Anda até x,y passo a passo, parando quando algo muda (para os testes e atalhos; a tela anima cada passo).
@@ -1033,6 +1053,7 @@
       this.spent.open += cards.length;
       this.spent.spadeOther += cards.filter((c) => c.suit === 'S').length;
       target.obj.open = true;
+      if (target.kind === 'chest' && target.obj.secret) this.specials.secretChests++;
 
       // A compra da sala nova acontece logo depois de abrir a porta que dá numa sala ainda não
       // visitada, antes mesmo de você entrar nela.
@@ -1362,6 +1383,11 @@
           break;
         }
       }
+      return this.addItem(key);
+    }
+
+    // Põe um item na bolsa (nulo se estiver cheia).
+    addItem(key) {
       if (this.items.length >= this.config.maxItems) {
         this.log('Você achou um item, mas a bolsa está cheia.', 'bad');
         return null;
@@ -1370,6 +1396,186 @@
       this.items.push(item);
       this.log(`Você achou: ${DC.ROGUE.itemName(this, key)}.`, 'good');
       return item;
+    }
+
+    // ---------- salas especiais e secretas (ideia da Julia, inspirada no Shattered Pixel Dungeon) ----------
+    //
+    // Do andar 2 em diante cada andar ganha 1 beco sem saída extra (uma porta, como a sala do tesouro) com um
+    // POÇO, um ALTAR ou uma BIBLIOTECA, tirados de uma fila sorteada por partida (o usado vai para o fim: não repete
+    // até passar pelos outros) e, às vezes, uma SALA SECRETA com um baú grátis (anel + Bife). A porta da secreta é
+    // parede até você passar ao lado dela (config.secretFindChance por turno). Tudo é sorteado à parte (`specialRng`)
+    // e depois de todo o resto, então a masmorra de cada seed continua igual, só ganha salas.
+
+    // Anel sorteado pela raridade (`weight`), com o gerador que receber.
+    pickRing(rng) {
+      const rings = DC.ROGUE.RINGS;
+      const keys = Object.keys(rings);
+      let roll = rng.next() * keys.reduce((n, k) => n + rings[k].weight, 0);
+      for (const k of keys) {
+        roll -= rings[k].weight;
+        if (roll < 0) return k;
+      }
+      return keys[keys.length - 1];
+    }
+
+    planSpecials() {
+      const cfg = this.config;
+      const rng = this.specialRng;
+      const looks = DC.ROGUE.WELL_LOOKS;
+      const effects = rng.shuffle(['mana', 'deck', 'hand']);
+      looks.forEach((look, i) => (this.wellEffects[look] = effects[i]));
+      const queue = rng.shuffle(['well', 'altar', 'library']);
+      let uid = 0;
+      const costCard = (no) => ({ id: `s${no}x${++uid}`, suit: rng.pick(DC.SUITS), rank: rng.int(cfg.specialDoorMin, cfg.specialDoorMax) });
+      this.floors.forEach((floor, i) => {
+        floor.fixtures = [];
+        const no = i + 1;
+        if (no < cfg.specialFromFloor) return;
+        // 60% a primeira da fila, 30% a segunda, 10% a terceira.
+        const roll = rng.next();
+        const kind = queue.splice(Math.min(queue.length - 1, roll < 0.6 ? 0 : roll < 0.9 ? 1 : 2), 1)[0];
+        queue.push(kind);
+        const built = DC.addDeadEnd(floor, rng, { kind, cost: costCard(no) });
+        if (built) {
+          const fx = { id: floor.fixtures.length, x: built.cell.x, y: built.cell.y, kind, used: false };
+          if (kind === 'well') fx.look = rng.pick(looks);
+          if (kind === 'library') fx.offers = rng.shuffle(['map', 'precision', 'thief', 'slot']).slice(0, 3);
+          floor.fixtures.push(fx);
+          floor.grid[fx.y][fx.x] = { type: 'fixture', room: built.room.id, ref: fx.id };
+        }
+        if (rng.next() < cfg.secretChance) {
+          const secret = DC.addDeadEnd(floor, rng, { kind: 'secret', secret: true, cost: costCard(no) });
+          if (secret) {
+            const chest = { id: floor.chests.length, x: secret.cell.x, y: secret.cell.y, cost: costCard(no), open: false, free: true, secret: true, extra: true, scroll: false, ring: this.pickRing(rng), reinforce: 'gold' };
+            floor.chests.push(chest);
+            floor.grid[chest.y][chest.x] = { type: 'chest', room: secret.room.id, ref: chest.id };
+            this.specials.secretRooms++;
+          }
+        }
+      });
+    }
+
+    // Portas secretas ao lado de onde você está: a cada turno há uma chance de notar uma. Achada, ela vira uma porta
+    // comum (com custo) no mapa.
+    noticeSecrets(result = {}) {
+      const f = this.floor;
+      for (const door of f.doors) {
+        if (!door.secret || door.found) continue;
+        if (Math.abs(door.x - this.player.x) + Math.abs(door.y - this.player.y) !== 1) continue;
+        if (this.secretRng.next() >= this.config.secretFindChance) continue;
+        door.found = true;
+        f.grid[door.y][door.x] = { type: 'door', room: null, ref: door.id };
+        this.specials.secretFound++;
+        result.secretFound = door.id;
+        this.log('Você nota uma porta escondida na parede!', 'good');
+      }
+    }
+
+    adjacentFixtures() {
+      return DC.adjacentFixtures(this.floor, this.player);
+    }
+
+    // Toque num poço, altar ou estante ao seu lado. O poço age na hora; o altar e a biblioteca abrem uma janela.
+    useFixture(x, y) {
+      if (!this.canAct()) return fail('Não dá para usar isso agora.');
+      const target = this.adjacentFixtures().find((t) => t.x === x && t.y === y);
+      if (!target) return fail('Fique ao lado do poço, do altar ou da estante.');
+      const fx = target.obj;
+      if (fx.kind === 'well') return this.drinkWell(fx);
+      this.pending = { type: fx.kind, fixtureId: fx.id };
+      this.log(fx.kind === 'altar' ? 'Um altar: sacrifique uma carta da mão em troca de um prêmio.' : 'Uma estante de pergaminhos: pague cartas para levar um.');
+      return { ok: true, kind: fx.kind, window: true };
+    }
+
+    // Poço: o efeito depende da cor da água (sorteado por seed) e só se descobre bebendo. Seca depois de usado.
+    drinkWell(fx) {
+      const cfg = this.config;
+      const effect = this.wellEffects[fx.look];
+      let count = 0;
+      let cards = [];
+      let text;
+      if (effect === 'mana') {
+        count = this.gainMana(this.manaMax() - this.mana);
+        text = count ? `a mana enche (+${count}).` : 'sua mana já estava cheia: o efeito se perdeu.';
+      } else if (effect === 'deck') {
+        cards = this.newCards(cfg.wellDeckCards);
+        this.shuffleIntoDeck(cards);
+        this.reinforced += cards.length;
+        count = cards.length;
+        text = `${cards.length} cartas novas entram no seu deck: ${cards.map((c) => `${DC.rankLabel(c.rank)}${DC.SUIT_SYMBOL[c.suit]}`).join(', ')}.`;
+      } else {
+        count = this.draw(this.handLimit() - this.hand.length);
+        text = count ? `a mão se enche (+${count} carta${count === 1 ? '' : 's'}).` : 'sua mão já estava cheia: o efeito se perdeu.';
+      }
+      fx.used = true;
+      this.wellKnown.add(fx.look);
+      this.specials.well++;
+      this.log(`Você bebe do poço de água ${fx.look}: ${text}`, 'good');
+      const turn = this.passTurn({});
+      this.afterAction();
+      return { ok: true, kind: 'well', effect, look: fx.look, count, cards, wasted: count === 0, combat: Boolean(turn.combat) };
+    }
+
+    // Fecha a janela do altar ou da biblioteca sem usar (não gasta turno nem carta).
+    closeSpecial() {
+      if (!this.pending || !['altar', 'library'].includes(this.pending.type)) return fail('Nada para fechar.');
+      this.pending = null;
+      return { ok: true };
+    }
+
+    // O que o altar dá pelo valor da carta sacrificada: 2 a 6 um item, 7 a 10 um anel, J, Q e K um anel e um item.
+    altarPrize(rank) {
+      return rank >= this.config.altarBothFrom ? 'both' : rank >= this.config.altarRingFrom ? 'ring' : 'item';
+    }
+
+    resolveAltar(cardId) {
+      if (!this.pending || this.pending.type !== 'altar') return fail('Nenhum altar aberto.');
+      const card = this.hand.find((c) => c.id === cardId);
+      if (!card) return fail('Escolha 1 carta da mão para o altar.');
+      const prize = this.altarPrize(card.rank);
+      if (prize !== 'ring' && this.items.length >= this.config.maxItems) return fail('Sua bolsa está cheia: use um item antes de sacrificar.');
+      const fx = this.floor.fixtures[this.pending.fixtureId];
+      this.hand = this.hand.filter((c) => c !== card);
+      this.discard.push(card);
+      this.spent.special++;
+      fx.used = true;
+      this.pending = null;
+      this.specials.altar++;
+      let item = null;
+      let ring = null;
+      if (prize !== 'ring') item = this.dropItem();
+      if (prize !== 'item') {
+        ring = this.pickRing(this.specialRng);
+        this.oweRing(ring, 'altar');
+      }
+      this.log(`Você sacrifica ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[card.suit]} no altar.`, 'good');
+      const turn = this.passTurn({});
+      this.afterAction();
+      return { ok: true, kind: 'altar', prize, card, item, ring, combat: Boolean(turn.combat) };
+    }
+
+    // Biblioteca: pague `libraryCost` cartas da mão e leve 1 dos pergaminhos da estante.
+    resolveLibrary(key, cardIds) {
+      if (!this.pending || this.pending.type !== 'library') return fail('Nenhuma biblioteca aberta.');
+      const fx = this.floor.fixtures[this.pending.fixtureId];
+      if (!fx.offers.includes(key)) return fail('Esse pergaminho não está na estante.');
+      const need = this.config.libraryCost;
+      const cards = this.handCards(cardIds);
+      if (!cards || cards.length !== need) return fail(`Pague ${need} carta${need === 1 ? '' : 's'} da mão.`);
+      if (key === 'slot' && this.slotsOpen >= this.config.maxSlots) return fail('Seus slots de inventário já estão no máximo.');
+      if (key !== 'slot' && this.items.length >= this.config.maxItems) return fail('Sua bolsa está cheia: use um item antes.');
+      this.hand = this.hand.filter((c) => !cards.includes(c));
+      this.discard.push(...cards);
+      this.spent.special += cards.length;
+      if (key !== 'slot') this.identified.add(key); // levar da estante já revela o que é
+      fx.used = true;
+      this.pending = null;
+      this.specials.library++;
+      if (key === 'slot') this.grantScroll();
+      else this.addItem(key);
+      const turn = this.passTurn({});
+      this.afterAction();
+      return { ok: true, kind: 'library', key, cards, combat: Boolean(turn.combat) };
     }
 
     // Usa um item da bolsa (fora de combate e das janelas). Usar descobre o efeito de todos do mesmo tipo.
