@@ -21,7 +21,7 @@
     enemyFinalFloor: 5, // a partir deste andar os inimigos têm enemyFinalCards cartas
     enemyMaxPerFloor: 3, // no máximo tantos inimigos por andar
     enemyShare: 1, // fração das sobras do deck da dungeon que vira inimigos (1 = todas)
-    enemyRamp: 9, // mistura das cartas entre os andares: 0 = os andares de cima só pegam as mais baixas; quanto maior, mais misturado
+    enemyRamp: 0.45, // mistura das cartas entre os andares, em unidades de custo de casar (`DC.matchCost`): 0 = os andares de cima só pegam as mais fáceis; quanto maior, mais misturado
     enemyRange: 1, // zona de ataque: casas em cruz ao redor dele
     enemyWideChance: 0.3, // chance de um inimigo ter o alcance maior (enemyWideRange) e tentar trancar a sala
     enemyWideRange: 2,
@@ -34,8 +34,8 @@
     scrollChance: 0.3, // chance de um inimigo (no lugar da carta de vitória) ou de um baú (no lugar das cartas) dar um pergaminho
     // Experimento Baralho Finito: carta gasta não volta. A comida (Maçã e Bife) acrescenta cartas NOVAS
     // (sorteadas como se saíssem de um baralho completo) em posições aleatórias do deck.
-    reinforceCards: 2, // cartas da Maçã (era 3: o relatório do playtest 4 mostrou comida demais, venceu com 28 cartas sobrando)
-    reinforceGoldCards: 3, // cartas do Bife (era 5)
+    reinforceCards: 3, // cartas da Maçã (caiu para 2 depois do playtest 4, mas a Julia achou mão de vaca e voltou para 3)
+    reinforceGoldCards: 5, // cartas do Bife (voltou para 5, junto com a Maçã)
     // Salas especiais (ideia da Julia, inspirada no Shattered Pixel Dungeon): do andar 2 em diante, 1 beco sem saída extra
     // por andar (poço, altar ou biblioteca, de uma fila sorteada por partida) e, às vezes, uma sala secreta.
     specialFromFloor: 2,
@@ -62,8 +62,8 @@
     // Ratos: inimigos pequenos de 1 carta baixa, a mais que o deck da dungeon (que agora pode passar de 52 cartas).
     ratsMin: 2, // por andar
     ratsMax: 3,
-    ratRankMin: 3, // a carta do rato vai de 3 a J: no nosso combate carta baixa não é carta fraca,
-    ratRankMax: 11, // os extremos (Ás, 2, Q, K) são os mais difíceis de casar, então o rato fácil fica no meio
+    ratRankMin: 8, // a carta do rato vai de 8 a Q: as mais fáceis de casar (custo esperado 1,7 a 1,8; o Ás custa 2,6),
+    ratRankMax: 12, // pela análise de dificuldade (`DC.matchCost`). O K fica de fora: erra com diferença grande
     ratFoodChance: 0.1, // chance de um rato derrotado deixar uma Maçã (os outros inimigos dependem das cartas deles)
     itemDropChanceSmall: 0.15, // chance de um rato deixar uma poção ou pergaminho da bolsa
     // Anéis: equipamento com 2 espaços; vêm de baús e de inimigos (mais difíceis, mais chance).
@@ -396,9 +396,10 @@
       return true;
     }
 
-    // Distribui as sobras do deck da dungeon em inimigos. As cartas mais baixas vão para os
-    // andares de cima e as mais altas para os de baixo (a dificuldade sobe sozinha); os
-    // andares mais fundos têm os inimigos de 3 cartas e recebem inimigos primeiro.
+    // Distribui as sobras do deck da dungeon em inimigos. As cartas mais FÁCEIS de casar vão para os andares de cima e
+    // as mais difíceis para os de baixo (a dificuldade sobe sozinha), medindo a dificuldade pelo custo esperado de
+    // derrubar a carta (`DC.matchCost`: o Ás é o pior, de 8 a Q as mais fáceis), e não pelo número dela; os andares
+    // mais fundos têm os inimigos de 3 cartas e recebem inimigos primeiro.
     planEnemies() {
       const cfg = this.config;
       const wide = { range: cfg.enemyWideRange, chance: cfg.enemyWideChance };
@@ -406,12 +407,12 @@
       const sizeAt = (floorNo) => (floorNo >= cfg.enemyFinalFloor ? cfg.enemyFinalCards : floorNo >= cfg.enemyDeepFloor ? cfg.enemyDeepCards : cfg.enemyCards);
 
       const budget = Math.floor(this.dungeonDeck.length * cfg.enemyShare);
-      // Cada carta ganha uma folga aleatória no ordenamento (enemyRamp): a dificuldade sobe com o
-      // andar, mas sem os extremos de só ases e 2 em cima e só reis embaixo.
+      // Cada carta ganha uma folga aleatória no ordenamento (enemyRamp, em unidades de custo): a dificuldade sobe com
+      // o andar, mas sem o extremo de só cartas fáceis em cima e só ases e 2 embaixo.
       const pool = this.rng
         .shuffle(this.dungeonDeck.slice())
         .slice(0, budget)
-        .map((card) => ({ card, key: card.rank + (this.rng.next() * 2 - 1) * cfg.enemyRamp }))
+        .map((card) => ({ card, key: DC.matchCost(card.rank) + (this.rng.next() * 2 - 1) * cfg.enemyRamp }))
         .sort((a, b) => a.key - b.key)
         .map((item) => item.card);
 
