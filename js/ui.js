@@ -162,6 +162,7 @@
       this.busy = false;
       this.help = false;
       this.resetOverlayState();
+      this.runSplash();
       this.tile = 40;
       this.tileEls = [];
       this.reachMap = null;
@@ -447,6 +448,34 @@
       }
       const n = Number(e.key);
       if (n >= 1 && n <= 5 && this.game.hand[n - 1]) this.toggleCard(this.game.hand[n - 1].id);
+    }
+
+    // Tela de entrada (logo sobre fundo azul): só na primeira vez, por 3 segundos; um toque fecha antes.
+    // Enquanto ela está na tela, a abertura do tutorial espera (senão o texto digitaria escondido).
+    runSplash() {
+      const html = document.documentElement;
+      const el = document.getElementById('splash');
+      this.splashOn = html.classList.contains('show-splash');
+      if (!this.splashOn || !el) return;
+      try {
+        localStorage.setItem('deckcrawly.splash', '1'); // já viu: a próxima abertura vai direto ao jogo
+      } catch (e) {
+        /* tudo bem */
+      }
+      let closed = false;
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        clearTimeout(this.splashTimer);
+        el.classList.add('leaving');
+        setTimeout(() => {
+          html.classList.remove('show-splash');
+          this.splashOn = false;
+          if (this.syncIntro) this.syncIntro();
+        }, 600);
+      };
+      this.splashTimer = setTimeout(close, 3000);
+      el.addEventListener('pointerdown', close);
     }
 
     // Menu sanduíche: o que é de teste e de opções fica escondido aqui (canto de cima, à direita).
@@ -2689,6 +2718,7 @@
     introWant() {
       const g = this.game;
       const step = this.tutor.step;
+      if (this.splashOn) return null; // a tela de entrada vem primeiro
       if (!step || g.status !== 'playing' || g.pending || this.help || this.reportView || this.busy) return null;
       if (step.kind === 'intro') return 'intro';
       if (this.currentSpot()) return 'spot';

@@ -3446,3 +3446,43 @@ html.art .t-enemy .enemy-cards.boss-open {
     flex-wrap: wrap;
   }
 }
+
+/* ---------- tela de entrada (logo no fundo azul) ---------- */
+
+.splash {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  align-items: center;
+  justify-content: center;
+  /* o azul-arroxeado escuro do jogo: o centro um pouco mais azul, a borda igual ao fundo da partida */
+  background: radial-gradient(1000px 700px at 50% 45%, #2c3070 0%, #231f4a 50%, var(--bg) 100%);
+  cursor: pointer;
+  transition: opacity 0.6s ease;
+}
+
+html.show-splash .splash {
+  display: flex;
+  animation: splashin 0.5s ease-out both;
+}
+
+.splash.leaving {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.splash img {
+  width: min(78vw, 920px);
+  max-height: 70vh;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 24px rgba(6, 4, 20, 0.6));
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+@keyframes splashin {
+  from {
+    opacity: 0;
+  }
+}

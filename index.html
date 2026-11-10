@@ -13,6 +13,18 @@
     <link rel="stylesheet" href="css/style.css" />
   </head>
   <body>
+    <!-- Tela de entrada: só na primeira vez que a pessoa abre o jogo (ou com ?splash no endereço). Decidido aqui, antes
+         de qualquer coisa aparecer, para não piscar o jogo por baixo. -->
+    <script>
+      try {
+        if (/[?&]splash\b/.test(location.search) || !localStorage.getItem('deckcrawly.splash')) document.documentElement.classList.add('show-splash');
+      } catch (e) {
+        /* sem armazenamento: não mostra */
+      }
+    </script>
+    <div id="splash" class="splash" role="img" aria-label="Deck Crawly: olha o naipe dessa masmorra">
+      <img src="assets/logo.png" alt="" draggable="false" />
+    </div>
     <div id="app">
       <div id="notice" class="notice" role="note" hidden></div>
       <main class="stage">
