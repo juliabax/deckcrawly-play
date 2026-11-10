@@ -1379,6 +1379,13 @@ html.art .t-floor.treasure.spr::before {
   background-image: url('../assets/pixel/enemies-vampire_idle.png');
 }
 
+/* o Chefão: o mesmo vampiro, maior e avermelhado */
+.enemy-sprite.boss {
+  transform: scale(1.45);
+  transform-origin: 50% 78%;
+  filter: hue-rotate(-40deg) saturate(1.5) drop-shadow(0 0 6px rgba(255, 60, 60, 0.7));
+}
+
 .enemy-sprite.hit {
   background-size: calc(var(--tile) * 10) calc(var(--tile) * 2);
   animation: foehit 0.5s steps(5) 1;
@@ -2873,6 +2880,41 @@ html:not(.touch) .link:hover {
 
 .board-row.back + .board-row.front {
   margin-top: calc(var(--cw) * -0.45);
+}
+
+/* Chefão (mais de 2 filas): todas as filas se sobrepõem, como numa mesa de verdade. De trás sobra só uma faixa de
+   cada carta virada; a fila da frente (aberta) fica inteira. Não cabe a etiqueta de cada carta, então só o 🔒. */
+.modal.combat .enemy-board.dense,
+.enemy-board.dense .card {
+  --cw: 80px;
+}
+
+.modal.combat .enemy-board.dense {
+  width: calc((var(--cw) + 14px) * var(--n, 2));
+  padding-top: 6px;
+}
+
+.enemy-board.dense .board-row + .board-row {
+  margin-top: calc(var(--cw) * -1.05);
+}
+
+.enemy-board.dense .board-row.back + .board-row.front {
+  margin-top: calc(var(--cw) * -0.9);
+}
+
+.enemy-board.dense .board-row.back .card .badge.lock {
+  font-size: 0;
+  padding: 0;
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: transparent;
+  border: 0;
+}
+
+.enemy-board.dense .board-row.back .card .badge.lock::before {
+  content: '🔒';
+  font-size: calc(var(--cw) * 0.2);
 }
 
 .enemy-card.locked {

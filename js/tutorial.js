@@ -535,7 +535,11 @@
     lines.push('DECK CRAWLY — relatório de playtest');
     lines.push(game.tutorial ? 'Seed: nenhuma (andar fixo do tutorial)' : `Seed: ${game.seed} (repete a mesma masmorra com ?seed=${game.seed})`);
     lines.push(`Resultado: ${RESULT[game.status] || game.status}`);
-    lines.push(`Andar: ${game.floorNo} de ${game.config.floors}`);
+    lines.push(game.floor && game.floor.boss ? `Andar: Chefão (depois do andar ${game.config.floors})` : `Andar: ${game.floorNo} de ${game.config.floors}`);
+    if (game.floor && game.floor.boss) {
+      const boss = game.floor.enemies[0];
+      lines.push(`Chefão: ${boss.down.length} de ${boss.cards.length} cartas derrubadas`);
+    }
     lines.push(`Tempo: ${duration(now - stats.startedAt)}`);
     lines.push(
       `Cartas no fim: deck ${game.playerDeck.length} · mão ${game.hand.length} · guardadas ${game.stash.length} · descarte ${game.discard.length}`,

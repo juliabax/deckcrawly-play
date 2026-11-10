@@ -417,6 +417,49 @@
     return { w, h, grid, rooms, doors: [], chests: [], enemies: [enemy], start, exit };
   }
 
+  // Sala do chefão (depois da escada do andar 5): uma sala só, sem portas nem saída, com o chefão do lado oposto à
+  // entrada. As cartas dele (`rows`, da fila da frente para a de trás) já vêm prontas; quem derruba todas vence.
+  function bossFloor(cards, rows) {
+    const w = 13;
+    const h = 7;
+    const grid = Array.from({ length: h }, () => Array.from({ length: w }, () => ({ type: 'wall', room: null, ref: null })));
+    const rooms = [{ id: 0, x: 1, y: 1, w: 11, h: 5, kind: 'boss' }];
+    for (let y = 1; y <= 5; y++) {
+      for (let x = 1; x <= 11; x++) grid[y][x] = { type: 'floor', room: 0, ref: null };
+    }
+    const start = { x: 1, y: 5 };
+    grid[start.y][start.x].type = 'start';
+    const enemy = {
+      id: 0,
+      x: 9,
+      y: 3,
+      room: 0,
+      range: 2,
+      blocks: true,
+      awake: false,
+      stun: 0,
+      lost: 0,
+      kind: 'vampire', // só aparência
+      boss: true,
+      cards,
+      rows,
+      cover: DC.coverOf(rows),
+      down: [],
+      dead: false,
+      ability: null,
+      scroll: false,
+      ring: null,
+      reinforce: null,
+    };
+    // Calibrar o deck é sempre com comida no chão: pertinho da entrada, uma Maçã e um Bife (3 + 5 cartas novas).
+    const pickups = [
+      { x: 2, y: 5, gold: false, taken: false },
+      { x: 2, y: 4, gold: true, taken: false },
+    ];
+    // Sem escada: `exit` só existe porque o resto do código espera uma casa; ela é um chão comum no canto da sala.
+    return { w, h, grid, rooms, doors: [], chests: [], enemies: [enemy], fixtures: [], traps: [], pickups, start, exit: { x: 11, y: 1 }, boss: true };
+  }
+
   function generateFloor(rng, cfg, drawCost) {
     for (let i = 0; i < 200; i++) {
       const floor = tryBuild(rng, cfg, drawCost);
@@ -716,5 +759,5 @@
     return found;
   }
 
-  Object.assign(DC, { addDeadEnd, adjacentFixtures, generateFloor, tutorialFloor, tutorialFloor2, cellAt, reach, pathTo, adjacentTargets, placeEnemies, placeSmall, placePickup, enemyAt, enemyHere, inWakeZone, chaseStep, canSee, enemyCanEnter, enemyZone, blocksRoom, DIRS });
+  Object.assign(DC, { addDeadEnd, adjacentFixtures, generateFloor, bossFloor, tutorialFloor, tutorialFloor2, cellAt, reach, pathTo, adjacentTargets, placeEnemies, placeSmall, placePickup, enemyAt, enemyHere, inWakeZone, chaseStep, canSee, enemyCanEnter, enemyZone, blocksRoom, DIRS });
 })(typeof window !== 'undefined' ? window : globalThis);

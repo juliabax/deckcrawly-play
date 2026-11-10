@@ -6,6 +6,9 @@
     handMax: 5,
     chestOptions: 5,
     chestPicks: 2,
+    bossFormation: [3, 2, 3, 2], // o chefão da sala final: cartas por fila, da frente (aberta) para o fundo (travadas)
+    bossRankMin: 5, // valor mínimo e máximo das cartas dele (sorteadas por seed, fora do deck da dungeon)
+    bossRankMax: 13,
     refillDraw: 1, // cartas compradas ao DESCER de andar (sempre respeitando handMax). Abrir a porta de uma sala nova não dá carta por si só
     exactBonus: 1, // cartas de graça ao abrir uma porta ou baú com soma exata
     matchDraw: 0, // cartas de graça a cada soma exata em combate (0: a soma exata já é o jeito normal de derrubar cartas; só a vitória compra)
@@ -153,6 +156,7 @@
       this.formRng = DC.makeRng(`${this.seed}:formation`); // quais cartas do inimigo ficam na frente
       this.ringRng = DC.makeRng(`${this.seed}:rings`); // quais baús e inimigos deixam anel, e qual
       this.ratRng = DC.makeRng(`${this.seed}:rats`); // ratos: quantos, onde e que carta
+      this.bossRng = DC.makeRng(`${this.seed}:boss`); // as cartas do chefão
       this.ratCount = 0;
       this.chestRng = DC.makeRng(`${this.seed}:chests`); // quais baús são destrancados (grátis)
       this.ringCount = 0;
@@ -259,6 +263,7 @@
       this.planRings();
       this.planRats();
       this.planSpecials();
+      this.planBoss();
       // Todo inimigo começa dormindo e parado (acorda quando você chega perto, como no Rogue).
       for (const floor of this.floors) {
         for (const enemy of floor.enemies) {
@@ -298,6 +303,26 @@
           });
         }
       }
+    }
+
+    // O chefão da sala final, depois da escada do andar 5. As cartas vêm de um sorteio à parte (nada sai do deck da
+    // dungeon) e ficam na formação da config: 3 abertas na frente e o resto travado atrás, em filas sobrepostas.
+    // Ele não está em `this.floors`: é um andar à parte (`this.bossFloor`, andar número `config.floors + 1`).
+    planBoss() {
+      const cfg = this.config;
+      const rng = this.bossRng;
+      let n = 0;
+      const rows = cfg.bossFormation.map((size) => {
+        const ids = [];
+        for (let i = 0; i < size; i++) {
+          const suit = rng.pick(DC.SUITS);
+          const rank = rng.int(cfg.bossRankMin, cfg.bossRankMax);
+          ids.push({ id: `b${++n}${suit}${rank}`, suit, rank });
+        }
+        return ids;
+      });
+      const cards = rows.flat();
+      this.bossFloor = DC.bossFloor(cards, rows.map((r) => r.map((c) => c.id)));
     }
 
     // Sorteia (pela seed, num sorteio à parte) quais baús são destrancados: abrem de graça, sem gastar cartas
@@ -513,9 +538,19 @@
       return enemy.cards.filter((c) => !enemy.down.includes(c.id) && !this.isLocked(enemy, c));
     }
 
+    // O mapa do andar `n`: os da masmorra e, depois do último, a sala do chefão.
+    floorAt(n) {
+      return n > this.floors.length ? this.bossFloor : this.floors[n - 1];
+    }
+
+    // Há sala de chefão depois do último andar (o treino não tem)?
+    hasBoss() {
+      return Boolean(this.bossFloor) && !this.tutorial;
+    }
+
     startFloor(n) {
       this.floorNo = n;
-      this.floor = this.floors[n - 1];
+      this.floor = this.floorAt(n);
       this.player = { x: this.floor.start.x, y: this.floor.start.y };
       const first = !this.arrived.has(n);
       this.arrived.add(n);
@@ -528,7 +563,9 @@
         // No treino, o andar 2 dá 2 cartas (♠ e ♥) para a pessoa aprender os poderes.
         if (this.tutorial) this.arrangeTutorialFloor2();
         this.pending = { type: 'refill', reason: 'floor', bonus: 0, draws: this.tutorial ? 2 : this.config.refillDraw };
-        this.log(`Você desce para o andar ${n}.`, 'good');
+        if (this.floor.boss) {
+          this.log('Você chega à sala do Chefão! Não há como fugir: derrube as cartas dele. Tem comida no chão, perto da entrada.', 'bad');
+        } else this.log(`Você desce para o andar ${n}.`, 'good');
       } else {
         this.log('Você entra na masmorra. Ache a escada de saída!', 'good');
       }
@@ -800,6 +837,7 @@
     // A escada de saída pode ser alcançada andando, sem abrir porta nem baú nem atravessar inimigo?
     exitReachable() {
       const f = this.floor;
+      if (f.boss) return false; // na sala do chefão só se sai vencendo
       const found = DC.reach(f, this.player, Infinity, (x, y) => Boolean(DC.enemyHere(f, x, y)));
       return found.has(f.exit.y * f.w + f.exit.x);
     }
@@ -859,7 +897,7 @@
       if (!result.trap || !result.trap.floorChanged) {
         if (cell.type === 'exit') {
           result.descended = true;
-          if (this.floorNo >= this.config.floors) {
+          if (this.floorNo >= this.config.floors + (this.hasBoss() ? 1 : 0)) {
             this.status = 'won';
             this.log('Você escapou da masmorra!', 'good');
           } else {
@@ -1298,6 +1336,12 @@
         enemy.dead = true;
         this.pending = null;
         this.returnLoot(enemy);
+        if (enemy.boss) {
+          // O chefão era o último obstáculo: sem recompensa, a partida acaba aqui.
+          this.status = 'won';
+          this.log('Você derrotou o Chefão e escapou da masmorra!', 'good');
+          return { ok: true, exact: Boolean(info.exact), drawn: info.drawn || 0, damage: info.damage || 0, burned: info.burned || [], victory: true, boss: true, reward: 0, scroll: false, revealed: [], enemyId: enemy.id, cardId: targets[0].id, cardIds: targets.map((t) => t.id), reinforce: false };
+        }
         if (!this.tutorial && this.itemRng.next() < (enemy.small ? this.config.itemDropChanceSmall : this.config.itemDropChance)) this.dropItem();
         // Às vezes o inimigo deixa um Pergaminho de Inventário no lugar da carta de recompensa.
         if (enemy.scroll && this.grantScroll()) {
@@ -1336,6 +1380,7 @@
       const card = this.hand.find((c) => c.id === cardId);
       if (!card) return fail('Escolha a carta que você descarta para fugir.');
       const enemy = this.combatEnemy();
+      if (enemy.boss) return fail('Não há como fugir do Chefão!');
       this.hand = this.hand.filter((c) => c !== card);
       this.discard.push(card);
       this.spent.flee++;

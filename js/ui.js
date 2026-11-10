@@ -1004,7 +1004,7 @@
     async floorVeil(render) {
       const veil = document.createElement('div');
       veil.className = 'veil';
-      veil.innerHTML = `<b>Andar ${this.game.floorNo}</b><span>de ${this.game.config.floors}</span>`;
+      veil.innerHTML = this.game.floor.boss ? '<b>O Chefão</b><span>sem volta</span>' : `<b>Andar ${this.game.floorNo}</b><span>de ${this.game.config.floors}</span>`;
       this.el.fx.appendChild(veil);
       const wait = (anim) => anim.finished.catch(() => {});
       await wait(veil.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260, fill: 'forwards' }));
@@ -1701,7 +1701,7 @@
 
     renderSide() {
       const g = this.game;
-      this.el.floor.textContent = `Andar ${g.floorNo} / ${g.config.floors}`;
+      this.el.floor.textContent = g.floor.boss ? 'Chefão' : `Andar ${g.floorNo} / ${g.config.floors}`;
       this.el.turn.textContent = `Turno ${g.turn}`;
       if (g.starved > (this.lastStarved || 0) && !g.tutorial) {
         this.toast('Fome! Uma carta do deck queimou.');
@@ -2442,7 +2442,7 @@
             return {
               cls: enemy.awake ? ` t-enemy awake${enemy.lost ? ' searching' : ''}` : ' t-enemy zone sleeping',
               inner:
-                (enemy.kind === 'rat' ? RAT_SVG : art ? `<i class="sprite enemy-sprite k-${enemy.kind}"></i>` : ENEMY_SVG) +
+                (enemy.kind === 'rat' ? RAT_SVG : art ? `<i class="sprite enemy-sprite k-${enemy.kind}${enemy.boss ? ' boss' : ''}"></i>` : ENEMY_SVG) +
                 `<span class="enemy-cards${left.length > 2 ? ' many' : ''}">${left.map((c) => (isHiddenCard(enemy, c) ? MINI_BACK : miniHTML(c))).join('')}</span>` +
                 (!enemy.awake ? '<span class="zzz">z</span>' : `<span class="alert">${enemy.lost ? '?' : '!'}</span>`),
               title: `${state} (${left.length} carta${left.length === 1 ? '' : 's'}${facedown ? `, ${facedown} virada${facedown === 1 ? '' : 's'}` : ''}). Toque nele para atacar`,
@@ -3482,11 +3482,11 @@
         <p class="combat-help">${touch ? 'Toque' : 'Escolha'} cartas da <b>sua mão</b> e cartas <b>abertas</b> do inimigo: <b>somas iguais</b> derrubam (<b>♠ vale o número ou o dobro</b>). 🔒 abre quando as da frente caem. <b>Preso?</b> Troque 1 por 1: a diferença <b>queima cartas do seu deck</b>.</p>
         <div class="combat-foe">
           <div class="foe-box">
-            <div class="foe">${enemy.kind === 'rat' ? RAT_SVG : `<i class="sprite enemy-sprite k-${enemy.kind}${hit ? ' hit' : ''}"></i>`}</div>
-            <span class="foe-name">${ENEMY_NAME[enemy.kind] || 'Inimigo'}</span>
+            <div class="foe">${enemy.kind === 'rat' ? RAT_SVG : `<i class="sprite enemy-sprite k-${enemy.kind}${enemy.boss ? ' boss' : ''}${hit ? ' hit' : ''}"></i>`}</div>
+            <span class="foe-name">${enemy.boss ? 'Chefão' : ENEMY_NAME[enemy.kind] || 'Inimigo'}</span>
             ${this.abilityHTML(enemy)}
           </div>
-          <div class="enemy-board" style="--n:${widest}">${board}</div>
+          <div class="enemy-board${rows.length > 2 ? ' dense' : ''}" style="--n:${widest}">${board}</div>
         </div>
         <div class="combat-mine">
           <div class="combat-power power">${this.powerHTML()}</div>
@@ -3502,7 +3502,7 @@
           <button class="btn ${canTrade ? 'danger' : ''}" data-ov="trade-go" ${canTrade ? '' : 'disabled'} title="Preso? Troque 1 carta da mão por 1 carta aberta do inimigo de valor diferente: a diferença queima cartas do seu deck.">${canTrade ? `Trocar ${label(cards[0])} por ${label(marked[0])} · dano ${damage}` : 'Trocar 1 por 1 (dano = diferença)'}</button>
           ${g.rings.map((r, i) => this.combatRingHTML(r, i)).join('')}
           ${this.combatScrollsHTML()}
-          <button class="btn ${last && pick ? 'danger' : ''}" data-ov="flee" ${pick ? '' : 'disabled'}>${fleeLabel}</button>
+          ${enemy.boss ? '' : `<button class="btn ${last && pick ? 'danger' : ''}" data-ov="flee" ${pick ? '' : 'disabled'}>${fleeLabel}</button>`}
           <button class="btn" data-act="clear" ${cards.length || marked.length ? '' : 'disabled'}>Limpar seleção</button>
         </div>
       </div>`;
@@ -3566,7 +3566,7 @@
         <h2>${won ? 'Você escapou da masmorra!' : 'Sem ações possíveis'}</h2>
         <p>${
           won
-            ? `Os ${g.config.floors} andares ficaram para trás.`
+            ? (g.hasBoss() ? `Os ${g.config.floors} andares e o Chefão ficaram para trás.` : `Os ${g.config.floors} andares ficaram para trás.`)
             : `Você ficou sem cartas para fazer o próximo movimento no andar ${g.floorNo}.`
         }</p>
         ${won ? '' : this.lossTipHTML()}
@@ -3589,7 +3589,7 @@
     helpHTML() {
       return `<div class="modal">
         <h2>Como jogar</h2>
-        <p>Desça os ${this.game.config.floors} andares até a escada de saída (▼). Sua <b>vida é o deck + a mão</b>: se não restar nenhuma ação possível, você perde.</p>
+        <p>Desça os ${this.game.config.floors} andares até a escada de saída (▼): depois do último, a sala do <b>Chefão</b> (10 cartas em filas, sem fuga) é o final. Derrube todas as cartas dele para vencer. Sua <b>vida é o deck + a mão</b>: se não restar nenhuma ação possível, você perde.</p>
         <h4>Cartas</h4>
         <ul>
           <li><b>Andar é de graça</b>, por turnos (como no Rogue): toque numa casa e o personagem vai passo a passo (ou use as setas do teclado). Só anda na vertical e horizontal. <b>Cada passo é um turno</b>, e abrir uma porta ou um baú também passa um turno. Depois do seu turno os inimigos agem.</li>
