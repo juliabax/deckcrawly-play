@@ -18,6 +18,7 @@
         scenes: [
           { focus: 'player', lines: ['Bem-vindo à masmorra.', 'Este é você.'] },
           { focus: 'hand', lines: ['Esta é a sua mão.', 'Se as cartas acabarem, você perde. Gaste com cuidado.'] },
+          { focus: 'player', lines: ['Seu objetivo: descer até a saída de cada andar.', 'Na masmorra de verdade são 5 andares e, no fim, um Chefão espera por você.'] },
         ],
       },
       {
@@ -84,6 +85,28 @@
         done: {
           door: `<b>Porta aberta!</b> As cartas gastas foram para o descarte. Se a soma foi exata você ganhou cartas de bônus (1, ou 2 se foi com cartas do mesmo naipe).`,
           chest: `<b>Baú aberto!</b> Funciona como uma porta: você paga o custo com a soma das cartas.`,
+        },
+      },
+      {
+        id: 'food',
+        kind: 'coach',
+        wait: 'reinforce', // concluído quando a pessoa pega a Maçã (fecha a janela dela)
+        auto: 600,
+        spots: [
+          {
+            id: 'food-go',
+            trigger: 'any',
+            compact: true, // 3 frases: letra menor para não cobrir a Maçã
+            focus: ['pickup', 'deck'], // a Maçã no chão e o deck, que é a vida
+            lines: ['Tem uma Maçã no chão: é comida.', 'Passe por cima dela e 3 cartas novas entram no seu deck.', 'Na masmorra de verdade a fome queima 1 carta a cada 30 turnos. Comida é vida!'],
+          },
+        ],
+        title: 'Comida',
+        body: {
+          default: `Tem uma <b>Maçã</b> no chão da sala. Toque na casa dela: <b>3 cartas novas</b> entram no seu deck.<br><span class="muted">O <b>Bife</b> dá 5. Comida também vem em baús e com alguns inimigos.</span>`,
+        },
+        done: {
+          default: `<b>Maçã!</b> Seu deck ganhou cartas novas. No jogo de verdade a <b>fome</b> queima <b>1 carta a cada 30 turnos</b> (o contador "Fome em N" fica lá em cima): comida repõe a sua vida. Aqui no treino a fome está desligada.`,
         },
       },
       {
@@ -539,6 +562,10 @@
     if (game.floor && game.floor.boss) {
       const boss = game.floor.enemies[0];
       lines.push(`Chefão: ${boss.down.length} de ${boss.cards.length} cartas derrubadas`);
+    }
+    if (game.bossArrival) {
+      const a = game.bossArrival;
+      lines.push(`Chegou ao Chefão no turno ${a.turn} com: deck ${a.deck} · mão ${a.hand} · guardadas ${a.stash}`);
     }
     lines.push(`Tempo: ${duration(now - stats.startedAt)}`);
     lines.push(

@@ -379,7 +379,9 @@
     const exit = { x: 11, y: 1 };
     grid[start.y][start.x].type = 'start';
     grid[exit.y][exit.x].type = 'exit';
-    return { w, h, grid, rooms, doors: [door], chests: [], enemies: [], start, exit };
+    // Uma Maçã no chão da sala da escada, em linha com a porta: o treino ensina a comida (e a fome) com ela.
+    const pickups = [{ x: 10, y: 2, gold: false, taken: false }];
+    return { w, h, grid, rooms, doors: [door], chests: [], enemies: [], pickups, start, exit };
   }
 
   // Segundo andar do treino: uma sala comprida, e um inimigo ao lado da escada (alcance 1). Chegar na escada

@@ -1734,9 +1734,9 @@
       // O deck da dungeon é gasto em portas, baús e inimigos: o contador mostra o que ainda cobra algo.
       const dungeonLeft = g.dungeonRemaining();
       this.el.piles.innerHTML =
-        pile(lowDeck ? 'Deck acabando!' : 'Seu deck (vida)', g.playerDeck.length, g.playerDeck.length ? '<div class="card back small"></div>' : '<div class="empty"></div>') +
+        pile(lowDeck ? 'Deck acabando!' : 'Seu deck (vida)', g.playerDeck.length, g.playerDeck.length ? '<div class="card back small"></div>' : '<div class="empty"></div>').replace('class="pile"', 'class="pile" title="O seu deck é a sua vida: carta usada não volta, e sem cartas para agir você perde."') +
         pile('Cemitério', g.discard.length, top ? cardHTML(top, { small: true, extra: 'static' }) : '<div class="empty"></div>').replace('class="pile"', 'class="pile grave-pile" data-pile="grave" title="Cartas usadas: não voltam ao deck. Toque para ver."') +
-        pile('Cartas da dungeon', dungeonLeft, dungeonLeft ? '<div class="card back dungeon small"></div>' : '<div class="empty"></div>') +
+        pile('Cartas da dungeon', dungeonLeft, dungeonLeft ? '<div class="card back dungeon small"></div>' : '<div class="empty"></div>').replace('class="pile"', 'class="pile" title="Quanto a masmorra ainda cobra: as cartas de portas, baús e inimigos que ainda estão de pé."') +
         this.manaHTML();
 
       // O contador "pula" quando muda. O do descarte espera a carta chegar.
@@ -2148,9 +2148,16 @@
       if (g.pending && g.pending.type === 'refill') return this.toast('Pegue as cartas primeiro.');
       const rect = el.getBoundingClientRect();
       if (el.dataset.id) {
-        // Slot com carta: devolve para a mão.
-        const res = g.unstashCard(el.dataset.id);
+        // Slot com carta: devolve para a mão. Com a mão cheia, a carta marcada troca de lugar com ela.
+        const swap = this.slotCandidate();
+        if (g.hand.length >= g.handLimit() && !swap) return this.toast('Mão cheia: marque 1 carta da mão e toque na guardada para trocar de lugar.');
+        const res = g.unstashCard(el.dataset.id, swap);
         if (!res.ok) return this.reject(res.error);
+        if (res.swapped) {
+          this.sel = this.sel.filter((id) => id !== res.swapped.id);
+          this.discard.delete(res.swapped.id);
+          this.track('stash');
+        }
         this.fxEnter = rect;
         this.sound('draw');
         this.renderAll();
@@ -2443,7 +2450,11 @@
               cls: enemy.awake ? ` t-enemy awake${enemy.lost ? ' searching' : ''}` : ' t-enemy zone sleeping',
               inner:
                 (enemy.kind === 'rat' ? RAT_SVG : art ? `<i class="sprite enemy-sprite k-${enemy.kind}${enemy.boss ? ' boss' : ''}"></i>` : ENEMY_SVG) +
-                `<span class="enemy-cards${left.length > 2 ? ' many' : ''}">${left.map((c) => (isHiddenCard(enemy, c) ? MINI_BACK : miniHTML(c))).join('')}</span>` +
+                // O Chefão tem 10 cartas: no mapa só as ABERTAS aparecem, grandes e bem separadas, por cima dele; o resto vira
+                // um selo "🔒 N" (as viradas ficam para a janela de combate).
+                (enemy.boss
+                  ? `<span class="enemy-cards boss-open">${left.filter((c) => !isHiddenCard(enemy, c)).map(miniHTML).join('')}${facedown ? `<span class="boss-locked" title="Cartas viradas: abrem quando as da frente caem">🔒 ${facedown}</span>` : ''}</span>`
+                  : `<span class="enemy-cards${left.length > 2 ? ' many' : ''}">${left.map((c) => (isHiddenCard(enemy, c) ? MINI_BACK : miniHTML(c))).join('')}</span>`) +
                 (!enemy.awake ? '<span class="zzz">z</span>' : `<span class="alert">${enemy.lost ? '?' : '!'}</span>`),
               title: `${state} (${left.length} carta${left.length === 1 ? '' : 's'}${facedown ? `, ${facedown} virada${facedown === 1 ? '' : 's'}` : ''}). Toque nele para atacar`,
             };
@@ -2855,6 +2866,12 @@
           // O buraco só fica totalmente limpo até ~40% do raio: o dobro do meio-lado deixa a sala inteira nítida.
           rx = r.width + 50;
           ry = r.height + 50;
+        } else if (kind === 'pickup') {
+          // A comida no chão (a primeira que ainda não foi pega).
+          const f = this.game.floor;
+          const p = (f.pickups || []).find((q) => !q.taken);
+          r = (p ? this.tileEls[p.y * f.w + p.x] : this.el.map).getBoundingClientRect();
+          rx = ry = Math.max(220, r.width * 5);
         } else if (kind === 'deck') {
           // O deck do jogador (a pilha com o número): é a vida dele.
           r = this.el.piles.children[0].getBoundingClientRect();
@@ -3554,7 +3571,15 @@
       if (g.tutorial) {
         return `<div class="modal ${won ? 'win' : 'lose'}">
           <h2>${won ? 'Treino concluído!' : 'Sem ações possíveis'}</h2>
-          <p>${won ? `Agora é a masmorra de verdade: ${DC.CONFIG.floors} andares, inimigos e muito naipe.` : 'Acabaram as cartas do treino. Tente de novo, desta vez com mais calma.'}</p>
+          <p>${won ? `Agora é a masmorra de verdade: ${DC.CONFIG.floors} andares e, no fim, um <b>Chefão</b>.` : 'Acabaram as cartas do treino. Tente de novo, desta vez com mais calma.'}</p>
+          ${won ? `<ul class="tour-next">
+            <li><b>Fome:</b> a cada 30 turnos uma carta queima. Ache <b>comida</b> (Maçã 3, Bife 5) no chão, em baús e com inimigos.</li>
+            <li><b>Soma exata</b> em portas compra cartas; em combate é o que derruba o inimigo.</li>
+            <li><b>Baús</b> pagam como portas e guardam comida e anéis. Alguns são de graça.</li>
+            <li><b>Salas especiais</b> (poço, altar, biblioteca...) ficam em becos: cada uma tem uma regra. Dá para tentar ou deixar.</li>
+            <li>Uma parede suspeita pode esconder uma <b>sala secreta</b>: passe perto dela.</li>
+          </ul>
+          <p class="muted">Tudo isso fica em <b>Regras</b> quando precisar.</p>` : ''}
           ${won ? '' : this.lossTipHTML()}
           <div class="actions">
             <button class="btn ${won ? '' : 'primary'}" data-ov="tour-retry">Refazer o treino</button>

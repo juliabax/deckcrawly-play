@@ -571,6 +571,8 @@
         if (this.tutorial) this.arrangeTutorialFloor2();
         this.pending = { type: 'refill', reason: 'floor', bonus: 0, draws: this.tutorial ? 2 : this.config.refillDraw };
         if (this.floor.boss) {
+          // Para o relatório: com quantas cartas se chega ao Chefão (antes da compra de chegada).
+          this.bossArrival = { deck: this.playerDeck.length, hand: this.hand.length, stash: this.stash.length, turn: this.turn };
           this.log('Você chega à sala do Chefão! Não há como fugir: derrube as cartas dele. Tem comida no chão, perto da entrada.', 'bad');
         } else this.log(`Você desce para o andar ${n}.`, 'good');
       } else {
@@ -812,11 +814,19 @@
     }
 
     // Uma carta guardada só é usada depois de voltar para a mão (o limite da mão continua valendo).
-    unstashCard(cardId) {
+    // Com a mão cheia, `swapId` (uma carta da mão) troca de lugar com a guardada: ela vai para o mesmo slot.
+    unstashCard(cardId, swapId = null) {
       if (!this.canStore()) return fail('Não dá para pegar cartas agora.');
       const card = this.stash.find((c) => c.id === cardId);
       if (!card) return fail('Essa carta não está guardada.');
-      if (this.hand.length >= this.handLimit()) return fail('Sua mão está cheia: libere um espaço antes de pegar a carta guardada.');
+      if (this.hand.length >= this.handLimit()) {
+        const out = swapId ? this.hand.find((c) => c.id === swapId) : null;
+        if (!out) return fail('Sua mão está cheia: marque uma carta da mão para trocar de lugar com a guardada.');
+        this.stash[this.stash.indexOf(card)] = out;
+        this.hand = this.hand.filter((c) => c !== out);
+        this.hand.push(card);
+        return { ok: true, swapped: out };
+      }
       this.stash = this.stash.filter((c) => c !== card);
       this.hand.push(card);
       return { ok: true };
@@ -1851,7 +1861,7 @@
 
     // Uma comida foi achada: a janela dela abre assim que nenhuma outra estiver aberta.
     owe(kind, source) {
-      if (this.tutorial) return;
+      if (this.tutorial && source !== 'chão') return; // no treino só a Maçã do chão (o passo da comida)
       this.owed.push({ kind, source });
     }
 
