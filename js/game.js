@@ -362,10 +362,17 @@
         }
       }
       // O baú do andar 1 sempre guarda um anel (e continua dando a comida): assim todo jogo começa com um anel à mão.
-      // Sorteio à parte, então os anéis dos outros andares não mudam.
+      // E esse primeiro é sempre ATIVO (de número ou de naipe), que é o que gasta mana: com só anéis passivos a mana
+      // (♦) fica sem uso (relatório 6 da Julia). Sorteio à parte, então os anéis dos outros andares não mudam.
       const first = this.floors[0].chests[0];
       if (first) {
-        if (!first.ring) first.ring = pick(DC.makeRng(`${this.seed}:ring1`));
+        const active = keys.filter((k) => rings[k].use || rings[k].suit);
+        if (!first.ring || !active.includes(first.ring)) {
+          const r1 = DC.makeRng(`${this.seed}:ring1`);
+          const sum = active.reduce((n, k) => n + rings[k].weight, 0);
+          let roll = r1.next() * sum;
+          first.ring = active.find((k) => (roll -= rings[k].weight) < 0) || active[active.length - 1];
+        }
         first.reinforce = first.free ? 'normal' : 'gold';
       }
     }
