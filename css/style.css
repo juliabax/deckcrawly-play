@@ -1021,7 +1021,7 @@ html:not(.touch) .no-fx .hand .card:hover {
   pointer-events: none;
 }
 
-/* carta do inimigo virada de costas (no mapa e na janela de combate) */
+/* carta do inimigo virada de costas (no mapa e na cena de combate) */
 .mini.back {
   background: repeating-linear-gradient(45deg, #7c2d2d 0 3px, #5f2222 3px 6px);
   border: 1px solid var(--paper);
@@ -1059,11 +1059,6 @@ html:not(.touch) .no-fx .hand .card:hover {
   display: none;
 }
 
-/* janela de combate */
-.modal.combat h2 {
-  color: var(--bad);
-}
-
 .cardrow.enemy-row {
   padding: 8px 0 14px;
 }
@@ -1091,23 +1086,6 @@ html:not(.touch) .no-fx .hand .card:hover {
   filter: grayscale(1) brightness(0.8);
   transform: rotate(-7deg) scale(0.92);
   box-shadow: none;
-}
-
-.combat-sel {
-  margin-top: 10px;
-  padding: 8px 12px;
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  font-size: 13px;
-}
-
-.combat-sel h3 {
-  margin: 0 0 6px;
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent);
 }
 
 .btn.danger {
@@ -1290,20 +1268,6 @@ html.art .token .ball {
   50% {
     background-position: calc(var(--tile) * -1) calc(var(--tile) * -2);
   }
-}
-
-/* inimigo grande na janela de combate */
-.foe {
-  display: none;
-}
-
-html.art .foe {
-  --tile: 92px;
-  display: block;
-  position: relative;
-  width: var(--tile);
-  height: calc(var(--tile) * 1.15);
-  margin: 0 auto;
 }
 
 .no-fx .enemy-sprite,
@@ -2303,151 +2267,8 @@ html:not(.touch) .link:hover {
   box-shadow: 0 0 0 3px #ffd76a;
 }
 
-/* Janela de combate: título e instrução no topo, o inimigo numa faixa (desenho à esquerda, cartas no meio),
-   a mão no meio da fileira de baixo (Poder à esquerda, inventário à direita) e os botões no fim. */
-.modal.combat {
-  padding: 16px 20px 18px;
-  width: min(860px, 100%);
-}
-
-.modal.combat h2 {
-  margin: 0 0 4px;
-  font-size: 24px;
-  text-align: center;
-}
-
-.modal.combat .combat-help {
-  margin: 0 0 10px;
-  font-size: 13px;
-  line-height: 1.4;
-  text-align: center;
-}
-
-.modal.combat .combat-foe {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  column-gap: 14px;
-  margin: 0 -20px;
-  padding: 0 20px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06) 12%, rgba(255, 255, 255, 0.06) 88%, transparent);
-}
-
-.modal.combat .foe-box {
-  grid-column: 1;
-  justify-self: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-}
-
-.modal.combat .foe {
-  --tile: 72px;
-  margin: 0;
-}
-
-.modal.combat .foe-name {
-  font-size: 13px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.modal.combat .cardrow {
-  --cw: 76px;
-  gap: 10px;
-}
-
-.modal.combat .cardrow .card {
-  --cw: 76px;
-}
-
-.modal.combat .cardrow.enemy-row {
-  grid-column: 2;
-  justify-content: center;
-  padding: 10px 0 14px;
-}
-
-.modal.combat .combat-mine {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: end;
-  column-gap: 14px;
-  margin-top: 12px;
-}
-
-.modal.combat .combat-power {
-  justify-self: start;
-  width: 150px;
-  padding-bottom: 22px;
-}
-
-.modal.combat .combat-hand {
-  text-align: center;
-}
-
-.modal.combat .combat-hand .cardrow {
-  padding: 8px 0 6px;
-  justify-content: center;
-}
-
-.modal.combat .combat-stash {
-  justify-self: end;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.modal.combat h4 {
-  margin: 4px 0 0;
-  text-align: center;
-}
-
-.modal.combat .modal-stash {
-  margin: 0;
-  gap: 6px;
-}
-
-.modal.combat .stash-slot {
-  width: 52px;
-  height: 74px;
-}
-
-.modal.combat .stash-slot .card {
-  --cw: 46px;
-}
-
-.modal.combat .combat-sel {
-  margin-top: 10px;
-  min-height: 38px;
-}
-
-.modal.combat .actions {
-  justify-content: space-between;
-  margin-top: 10px;
-  position: sticky;
-  bottom: -1px;
-  z-index: 5;
-  padding: 8px 0 4px;
-  background: linear-gradient(180deg, transparent, var(--panel, #241b33) 28%);
-}
-
-/* telas baixas: cartas menores */
-@media (max-height: 720px) {
-  .modal.combat .cardrow,
-  .modal.combat .cardrow .card {
-    --cw: 64px;
-  }
-
-  .modal.combat .foe {
-    --tile: 60px;
-  }
-}
-
 /* Soma exata: o box da seleção brilha em dourado (é a melhor jogada: compra 1 carta). */
-.panel.exact,
-.combat-sel.exact {
+.panel.exact {
   border-color: #ffd76a;
   background: linear-gradient(180deg, rgba(255, 215, 106, 0.16), rgba(255, 215, 106, 0.05));
   box-shadow: 0 0 0 1px #ffd76a, 0 0 18px 2px rgba(255, 215, 106, 0.45);
@@ -2481,7 +2302,6 @@ html:not(.touch) .link:hover {
 }
 
 .no-fx .panel.exact,
-.no-fx .combat-sel.exact,
 .no-fx .exact-tag {
   animation: none;
 }
@@ -2530,18 +2350,6 @@ html:not(.touch) .link:hover {
 
 .bag-slot.item:hover {
   box-shadow: 0 0 12px rgba(231, 184, 74, 0.5);
-}
-
-.modal.combat .foe-ability {
-  max-width: 190px;
-  font-size: 11px;
-  line-height: 1.3;
-  text-align: center;
-  color: #ffb4b4;
-}
-
-.modal.combat .foe-ability b {
-  color: #ff8a8a;
 }
 
 .card.frozen {
@@ -2652,15 +2460,6 @@ html:not(.touch) .link:hover {
 
 /* Formação do inimigo: fila da frente (aberta) por cima da fila de trás (travada), como na mesa. Cada fila ocupa a
    largura toda dividida em partes iguais, então as cartas de trás ficam sob as da frente que as cobrem. */
-.modal.combat .enemy-board {
-  grid-column: 2;
-  width: calc((var(--cw) + 14px) * var(--n, 2));
-  max-width: 100%;
-  display: flex;
-  flex-direction: column;
-  padding: 10px 0 14px;
-}
-
 .board-row {
   display: flex;
 }
@@ -2685,41 +2484,6 @@ html:not(.touch) .link:hover {
   margin-top: calc(var(--cw) * -0.45);
 }
 
-/* Chefão (mais de 2 filas): todas as filas se sobrepõem, como numa mesa de verdade. De trás sobra só uma faixa de
-   cada carta virada; a fila da frente (aberta) fica inteira. Não cabe a etiqueta de cada carta, então só o 🔒. */
-.modal.combat .enemy-board.dense,
-.enemy-board.dense .card {
-  --cw: 80px;
-}
-
-.modal.combat .enemy-board.dense {
-  width: calc((var(--cw) + 14px) * var(--n, 2));
-  padding-top: 6px;
-}
-
-.enemy-board.dense .board-row + .board-row {
-  margin-top: calc(var(--cw) * -1.05);
-}
-
-.enemy-board.dense .board-row.back + .board-row.front {
-  margin-top: calc(var(--cw) * -0.9);
-}
-
-.enemy-board.dense .board-row.back .card .badge.lock {
-  font-size: 0;
-  padding: 0;
-  top: 2px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: transparent;
-  border: 0;
-}
-
-.enemy-board.dense .board-row.back .card .badge.lock::before {
-  content: '🔒';
-  font-size: calc(var(--cw) * 0.2);
-}
-
 .enemy-card.locked {
   cursor: help;
   filter: brightness(0.82);
@@ -2731,12 +2495,6 @@ html:not(.touch) .link:hover {
   background: #4a1d1d;
   color: #ffd9d9;
   border: 1px solid #a64b4b;
-}
-
-.combat-status {
-  margin: 6px 0 0;
-  font-size: 13px;
-  text-align: center;
 }
 
 /* Cartas do inimigo marcadas para a soma: sobem e ganham contorno. */
@@ -2896,11 +2654,6 @@ body.shake main {
   animation: none;
 }
 
-.foe .rat-ico {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
 
 /* ---------- experimento Turnos: inimigos que dormem e perseguem, e a mana (♦) ---------- */
 
@@ -3526,4 +3279,528 @@ html.show-splash .splash {
 
 .stash-slot.drop-target {
   background: rgba(231, 184, 74, 0.22);
+}
+
+/* =====================================================================================================================
+   COMBATE: uma cena no palco (mock da Julia). O mapa fica escurecido atrás, o inimigo aparece em zoom no meio e as cartas
+   dele embaixo, com as somas dos dois lados entre elas. A mão, o Poder e o Inventário seguem embaixo e a coluna da direita
+   segue a mesma. Esquerda: ajustes de ±1 (anéis e pergaminhos). Direita: derrubar, trocar 1 por 1 e fugir.
+   As medidas vêm do tamanho da própria cena (unidades cqw/cqh), então servem em qualquer tela.
+   ===================================================================================================================== */
+
+.map-wrap.in-combat .map {
+  filter: blur(7px) brightness(0.32) saturate(0.8);
+  pointer-events: none;
+  transition: filter 0.4s ease;
+}
+
+.map-wrap.in-combat .zoom,
+.map-wrap.in-combat .map-hud {
+  visibility: hidden;
+}
+
+.cscene {
+  --side-max: 250px;
+  --cwlim: 50cqw;
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  container-type: size;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2.1fr) minmax(0, 1fr);
+  column-gap: clamp(8px, 1.6cqw, 26px);
+  padding: clamp(8px, 2cqh, 18px) clamp(8px, 1.6cqw, 24px);
+  background: radial-gradient(ellipse 62% 72% at 50% 38%, rgba(96, 44, 104, 0.5), rgba(12, 7, 20, 0.2) 72%), linear-gradient(rgba(10, 6, 16, 0.58), rgba(10, 6, 16, 0.8));
+  cursor: default;
+}
+
+.cscene[hidden] {
+  display: none;
+}
+
+.cscene.enter {
+  animation: cs-in 0.35s ease-out backwards;
+}
+
+.cscene.enter .cs-foe {
+  animation: cs-zoom 0.55s cubic-bezier(0.2, 0.9, 0.3, 1) backwards;
+}
+
+@keyframes cs-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes cs-zoom {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+}
+
+.no-fx .cscene.enter,
+.no-fx .cscene.enter .cs-foe {
+  animation: none;
+}
+
+/* centro: nome, inimigo em zoom, as duas somas e as cartas dele */
+.cs-center {
+  /* largura da carta do inimigo: cabe na altura que sobra (o conjunto de filas tem --eh larguras de altura) e na largura */
+  --ecw: clamp(36px, min(calc(var(--eb, 30) * var(--ebk, 1) * 1cqh / var(--eh, 1.4)), calc(var(--cwlim) / var(--n, 2) / 1.12)), 124px);
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 0;
+  min-width: 0;
+  gap: clamp(2px, 0.6cqh, 6px);
+}
+
+.cs-plate {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+}
+
+.cs-name {
+  padding: 0.18em 1em;
+  font: 800 clamp(15px, 4.4cqh, 34px) / 1.1 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text);
+  background: rgba(10, 6, 16, 0.7);
+  border: 1px solid #6c4a73;
+  border-radius: 10px;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.6);
+}
+
+.cs-foe-ability,
+.cs-plate .foe-ability {
+  max-width: 56ch;
+  font-size: clamp(10px, 2.3cqh, 13px);
+  line-height: 1.3;
+  text-align: center;
+  color: #ffb4b4;
+}
+
+.cs-plate .foe-ability b {
+  color: #ff8a8a;
+}
+
+/* o inimigo: ocupa toda a altura que sobra, sempre quadrado, em pixel art ampliada sem suavizar */
+.cs-foe {
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  position: relative;
+  margin-top: 6px;
+}
+
+.cs-foe > * {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  translate: -50% 0;
+  height: 100%;
+  aspect-ratio: 1 / 1;
+  max-width: 100%;
+}
+
+.cs-foe::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 5%;
+  translate: -50% 0;
+  width: 46%;
+  height: 7%;
+  background: radial-gradient(ellipse, rgba(0, 0, 0, 0.65), transparent 70%);
+}
+
+/* Cada quadro do desenho tem 32 px, mas o inimigo ocupa só 16 x 16 no meio (x 7 a 23, y 12 a 29). Para ele encher a cena, o
+   quadro é desenhado com o dobro da altura da cena e sobe, de modo que a parte com desenho caiba na cena. */
+.cs-foe .enemy-sprite {
+  height: 200%;
+  top: -78%;
+  bottom: auto;
+  width: auto;
+  max-width: none;
+  translate: -47% 0;
+  background-size: 600% 100%;
+  animation: cs-idle 0.9s steps(6) infinite;
+  image-rendering: pixelated;
+}
+
+.cs-foe .enemy-sprite.hit {
+  background-size: 500% 100%;
+  animation: cs-hit 0.5s steps(5) 1;
+}
+
+.cs-foe .enemy-sprite.boss {
+  transform: scale(1.04);
+  transform-origin: 47% 90%;
+}
+
+@keyframes cs-idle {
+  to {
+    background-position: 120% 0;
+  }
+}
+
+@keyframes cs-hit {
+  to {
+    background-position: 125% 0;
+  }
+}
+
+.cscene .cs-foe.hit {
+  animation: cs-shake 0.4s linear;
+}
+
+@keyframes cs-shake {
+  15%, 75% { transform: translateX(-2%); }
+  45%, 90% { transform: translateX(2%); }
+}
+
+.cs-foe > svg {
+  height: 86%;
+  top: 7%;
+  bottom: auto;
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.6));
+}
+
+.no-fx .cs-foe .enemy-sprite,
+.no-fx .cscene .cs-foe.hit {
+  animation: none;
+}
+
+/* as somas: a do inimigo em cima das cartas dele e a sua embaixo, como na mesa */
+.cs-sum {
+  flex: none;
+  position: relative;
+  z-index: 4;
+  display: flex;
+  align-items: baseline;
+  gap: 0.45em;
+  padding: 0.05em 0.9em 0.12em;
+  font-size: clamp(14px, 3.4cqh, 26px);
+  color: var(--muted);
+  background: rgba(12, 8, 20, 0.9);
+  border: 2px solid #4a3a5a;
+  border-radius: 14px;
+  line-height: 1.15;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.cs-sum.foe {
+  margin-bottom: -0.4em;
+}
+
+.cs-sum.mine {
+  margin-top: -0.4em;
+}
+
+.cs-sum small {
+  font-size: 0.5em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.cs-sum b {
+  font-size: 1.7em;
+  font-weight: 800;
+}
+
+.cs-sum em {
+  font-size: 0.55em;
+  font-style: normal;
+  opacity: 0.85;
+}
+
+.cs-sum i {
+  font-style: normal;
+  color: #ffd76a;
+}
+
+.cs-sum.on b {
+  color: #ffd76a;
+}
+
+.cs-sum.exact {
+  border-color: #ffd76a;
+  box-shadow: 0 0 0 1px #ffd76a, 0 0 18px 2px rgba(255, 215, 106, 0.5);
+  animation: exactbox 1.4s ease-in-out infinite;
+}
+
+.no-fx .cs-sum.exact {
+  animation: none;
+}
+
+/* as cartas dele: a fila da frente (aberta) por cima das de trás (viradas); cada fila divide a largura toda */
+.cs-cards {
+  --cw: var(--ecw);
+  flex: none;
+  width: calc((var(--cw) + 14px) * var(--n, 2));
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0 6px;
+}
+
+.cs-cards .card {
+  --cw: var(--ecw);
+}
+
+.cs-cards .board-row.back + .board-row.front {
+  margin-top: calc(var(--cw) * -0.45);
+}
+
+/* Chefão (mais de 2 filas): todas as filas se sobrepõem, como numa mesa. De trás sobra só uma faixa de cada carta
+   virada; a fila da frente (aberta) fica inteira. Não cabe a etiqueta de cada carta, então só o 🔒. */
+.cs-cards.dense .board-row + .board-row {
+  margin-top: calc(var(--cw) * -1.05);
+}
+
+.cs-cards.dense .board-row.back + .board-row.front {
+  margin-top: calc(var(--cw) * -0.9);
+}
+
+.cs-cards.dense .board-row.back .card .badge.lock {
+  font-size: 0;
+  padding: 0;
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: transparent;
+  border: 0;
+}
+
+.cs-cards.dense .board-row.back .card .badge.lock::before {
+  content: '🔒';
+  font-size: calc(var(--cw) * 0.2);
+}
+
+.cs-cards .enemy-card.target {
+  transform: translateY(-10px);
+  outline: 3px solid #ffd76a;
+  outline-offset: 2px;
+  box-shadow: 0 0 18px 3px rgba(255, 215, 106, 0.55), 0 6px 14px rgba(0, 0, 0, 0.5);
+}
+
+.cs-status {
+  flex: none;
+  margin: 2px 0 0;
+  min-height: 2.6em;
+  max-width: 64ch;
+  font-size: clamp(11px, 2.3cqh, 15px);
+  line-height: 1.3;
+  text-align: center;
+  color: var(--text);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.cs-jokers {
+  flex: none;
+  font-size: 12px;
+}
+
+.cs-jokers .row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.cs-jokers:empty {
+  display: none;
+}
+
+/* colunas dos lados */
+.cs-side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-self: center;
+  min-width: 0;
+  width: 100%;
+  max-width: var(--side-max);
+}
+
+.cs-left {
+  grid-column: 1;
+  justify-self: start;
+}
+
+.cs-right {
+  grid-column: 3;
+  justify-self: end;
+}
+
+.cs-left:empty {
+  display: none;
+}
+
+.cs-box {
+  padding: 10px;
+  background: rgba(12, 8, 20, 0.72);
+  border: 1px solid #6c4a73;
+  border-radius: 12px;
+}
+
+.cs-box h4 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.cs-adj {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cs-adj .btn {
+  font-size: clamp(11px, 2.3cqh, 14px);
+  padding: 0.45em 0.6em;
+}
+
+.cs-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 0.55em 0.8em;
+  font-size: clamp(13px, 3cqh, 19px);
+  background: rgba(12, 8, 20, 0.78);
+}
+
+.cs-btn.primary {
+  background: var(--accent);
+}
+
+.cs-btn b {
+  font-weight: 800;
+}
+
+.cs-btn small {
+  font-size: 0.68em;
+  font-weight: 400;
+  opacity: 0.85;
+  text-align: center;
+}
+
+.cs-btn:disabled {
+  opacity: 0.55;
+}
+
+.cs-clear {
+  align-self: center;
+  padding: 0.2em 0.6em;
+  font-size: 12px;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  text-decoration: underline;
+}
+
+.cs-clear:disabled {
+  opacity: 0.35;
+}
+
+/* tela quadrada ou em pé: uma coluna só, com os ajustes e as jogadas em linha embaixo da cena */
+@media (max-aspect-ratio: 1/1), (max-width: 760px) {
+  .cscene {
+    --cwlim: 88cqw;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto auto;
+    row-gap: 6px;
+  }
+
+  .cs-center {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .cs-left,
+  .cs-right {
+    grid-column: 1;
+    justify-self: stretch;
+    max-width: none;
+  }
+
+  .cs-left {
+    grid-row: 2;
+  }
+
+  .cs-right {
+    grid-row: 3;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: stretch;
+  }
+
+  .cs-right .cs-btn {
+    flex: 1 1 28%;
+    padding: 0.4em 0.4em;
+  }
+
+  .cs-right .cs-clear {
+    flex: 1 1 100%;
+  }
+
+  .cs-adj {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .cs-box h4 {
+    margin-bottom: 4px;
+  }
+
+  /* O espaço é curto: as cartas dele ficam um pouco menores, os botões perdem a linha de baixo, o texto de ajuda diminui e as
+     pilhas viram só os números (o deck é a sua vida, então ele continua à vista). A bolsa some: os ajustes de ±1 estão na cena. */
+  .cscene {
+    --ebk: 0.82;
+  }
+
+  .cs-btn {
+    font-size: 13px;
+    padding: 0.5em 0.3em;
+  }
+
+  .cs-btn small {
+    display: none;
+  }
+
+  .cs-status {
+    min-height: 0;
+    font-size: 12px;
+  }
+
+  body.in-combat .side > .gear {
+    display: none;
+  }
+
+  body.in-combat .side > .piles .stack,
+  body.in-combat .side > .piles .empty,
+  body.in-combat .side > .piles .mana-orb,
+  body.in-combat .side > .piles .mana-pips {
+    display: none;
+  }
+}
+
+/* cena muito baixa (celular em pé): sem o texto de ajuda, o inimigo ganha o espaço (a soma dourada e o botão Derrubar já dizem o resto) */
+@container (max-height: 440px) {
+  .cs-status {
+    display: none;
+  }
 }

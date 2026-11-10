@@ -148,6 +148,7 @@
         log: $('log'),
         hand: $('hand'),
         overlay: $('overlay'),
+        combat: $('combat'),
         toast: $('toast'),
         floor: $('hud-floor'),
         turn: $('hud-turn'),
@@ -158,6 +159,14 @@
         gear: $('gear'),
         power: $('power'),
       };
+      // Um index.html antigo em cache não tem a cena de combate: cria no lugar (o resto do jogo não depende disso).
+      if (!this.el.combat) {
+        this.el.combat = document.createElement('div');
+        this.el.combat.id = 'combat';
+        this.el.combat.className = 'cscene';
+        this.el.combat.hidden = true;
+        this.el.mapWrap.appendChild(this.el.combat);
+      }
       this.sel = [];
       this.busy = false;
       this.help = false;
@@ -388,6 +397,8 @@
       this.el.panel.addEventListener('click', (e) => this.onPanelClick(e));
       this.el.power.addEventListener('click', (e) => this.onPanelClick(e));
       this.el.overlay.addEventListener('click', (e) => this.onOverlayClick(e));
+      // A cena de combate usa os mesmos botões das janelas (atacar, trocar, fugir, anéis, coringa).
+      this.el.combat.addEventListener('click', (e) => this.onOverlayClick(e));
       this.el.overlay.addEventListener('input', (e) => {
         const note = e.target.closest('[data-note]');
         if (note) this.notes[note.dataset.note] = note.value;
@@ -708,7 +719,7 @@
       const wrap = this.el.mapWrap;
       let drag = null;
       wrap.addEventListener('pointerdown', (e) => {
-        if (e.button !== 0 || this.busy || e.target.closest('.zoom')) return;
+        if (e.button !== 0 || this.busy || e.target.closest('.zoom, .cscene')) return;
         drag = { id: e.pointerId, x: e.clientX, y: e.clientY, tx: this.camera.tx, ty: this.camera.ty, active: false };
       });
       wrap.addEventListener('pointermove', (e) => {
@@ -1266,7 +1277,7 @@
       if (this.busy || !this.game.canFight()) return;
       const g = this.game;
       const enemy = g.combatEnemy();
-      const first = el || this.el.overlay.querySelector('.enemy-card.target') || this.el.overlay.querySelector('.enemy-card[data-ov="attack"]');
+      const first = el || this.el.combat.querySelector('.enemy-card.target') || this.el.combat.querySelector('.enemy-card[data-ov="attack"]');
       const rect = first ? first.getBoundingClientRect() : null;
       const res = g.attack(this.sel, enemyCardIds);
       if (!res.ok) return this.reject(res.error);
@@ -1309,7 +1320,7 @@
       if (this.busy || !this.game.canFight()) return;
       const g = this.game;
       const enemy = g.combatEnemy();
-      const first = this.el.overlay.querySelector('.enemy-card.target');
+      const first = this.el.combat.querySelector('.enemy-card.target');
       const rect = first ? first.getBoundingClientRect() : null;
       const res = g.trade(cardId, enemyCardId);
       if (!res.ok) return this.reject(res.error);
@@ -1635,7 +1646,7 @@
     onOverlayClick(e) {
       const slot = e.target.closest('.stash-slot');
       if (slot) return this.onSlotClick(slot);
-      // Poderes, coringa e "limpar seleção" dentro da janela de combate usam o mesmo código do painel.
+      // Poderes, coringa e "limpar seleção" dentro de uma janela ou da cena de combate usam o mesmo código do painel.
       if (e.target.closest('[data-act], [data-joker]')) return this.onPanelClick(e);
       const ringBtn = e.target.closest('[data-ring]');
       if (ringBtn) return this.onRingClick(Number(ringBtn.dataset.ring), Number(ringBtn.dataset.dir) || 0);
@@ -2245,7 +2256,7 @@
       return `<div class="stash-label">Anéis ${worn}/${g.rings.length}</div><div class="bag-row">${chips}</div>`;
     }
 
-    // Pergaminhos de Precisão na janela de combate: um par −1/+1 por pergaminho (o Ladrão só vale nas portas).
+    // Pergaminhos de Precisão na cena de combate: um par −1/+1 por pergaminho (o Ladrão só vale nas portas).
     combatScrollsHTML() {
       const g = this.game;
       return g.items
@@ -2257,7 +2268,7 @@
         .join('');
     }
 
-    // Botões de anel dentro da janela de combate. Os de ±1 (Precisão) têm um botão para cada sentido.
+    // Botões de anel na cena de combate. Os de ±1 (Precisão) têm um botão para cada sentido.
     combatRingHTML(ring, i) {
       const g = this.game;
       const def = ring && DC.ROGUE.RINGS[ring.ring];
@@ -2439,7 +2450,9 @@
         const selected = this.sel.includes(card.id);
         // Mostra sempre o que a carta faz de verdade: ♦ dobra ao andar, ♣ copia,
         // ♥ devolve e ♠ compra (já limitado pelo descarte, pelo deck e pela mão).
-        const next = htmlToEl(cardHTML(card, { selected, badge: this.cardBadge(card) }));
+        // Em combate, uma carta congelada (Gelo) fica marcada na mão até você derrubar uma carta do inimigo.
+        const frozen = g.pending && g.pending.frozen === card.id;
+        const next = htmlToEl(cardHTML(card, { selected, badge: frozen ? '❄ congelada' : this.cardBadge(card), extra: frozen ? 'frozen' : '' }));
         let node = old.get(card.id);
         if (node) {
           node.className = next.className;
@@ -2516,21 +2529,23 @@
           .join(', ')}): casa com os dois valores.</p>`;
       }
 
+      let jokers = '';
       for (const joker of cards.filter((c) => c.suit === 'C')) {
         const others = g.hand.filter((c) => c.id !== joker.id);
         if (!others.length) continue;
         const current = g.jokerTarget(joker);
-        html += `<div class="row"><span>♣ vale:</span><button class="btn small ${current ? '' : 'on'}" data-joker="${joker.id}" data-target="">${joker.rank} (própria)</button><span>ou copia</span>${others
+        jokers += `<div class="row"><span>♣ vale:</span><button class="btn small ${current ? '' : 'on'}" data-joker="${joker.id}" data-target="">${joker.rank} (própria)</button><span>ou copia</span>${others
           .map(
             (o) =>
               `<button class="btn small ${current && current.id === o.id ? 'on' : ''}" data-joker="${joker.id}" data-target="${o.id}">${label(o)}</button>`,
           )
           .join('')}</div>`;
       }
-      return { html, sum, sums, cards, exact };
+      html += jokers;
+      return { html, sum, sums, cards, exact, jokers };
     }
 
-    // Botão do poder (só ♥ compra cartas): fica ao lado da mão e também dentro da janela de combate.
+    // Botão do poder (só ♥ compra cartas): fica ao lado da mão (também vale em combate).
     powerHTML() {
       const g = this.game;
       const cards = g.status === 'playing' ? g.handCards(this.sel) || [] : [];
@@ -2567,6 +2582,12 @@
       }
       const cards = g.handCards(this.sel) || [];
       panel.classList.remove('exact');
+      // Em combate a cena mostra a seleção, as somas e as jogadas: o painel não repete.
+      if (g.inCombat()) {
+        panel.hidden = true;
+        panel.innerHTML = '';
+        return;
+      }
       panel.hidden = false;
       if (!cards.length) {
         // Parado, sem nada marcado: o painel só aparece se há algo a dizer (o resto é o cabeçalho e o histórico).
@@ -2656,7 +2677,7 @@
               inner:
                 (enemy.kind === 'rat' ? RAT_SVG : art ? `<i class="sprite enemy-sprite k-${enemy.kind}${enemy.boss ? ' boss' : ''}"></i>` : ENEMY_SVG) +
                 // O Chefão tem 10 cartas: no mapa só as ABERTAS aparecem, grandes e bem separadas, por cima dele; o resto vira
-                // um selo "🔒 N" (as viradas ficam para a janela de combate).
+                // um selo "🔒 N" (as viradas ficam para a cena de combate).
                 (enemy.boss
                   ? `<span class="enemy-cards boss-open">${left.filter((c) => !isHiddenCard(enemy, c)).map(miniHTML).join('')}${facedown ? `<span class="boss-locked" title="Cartas viradas: abrem quando as da frente caem">🔒 ${facedown}</span>` : ''}</span>`
                   : `<span class="enemy-cards${left.length > 2 ? ' many' : ''}">${left.map((c) => (isHiddenCard(enemy, c) ? MINI_BACK : miniHTML(c))).join('')}</span>`) +
@@ -3475,7 +3496,8 @@
       else if (kind === 'crypt') html = this.cryptHTML();
       else if (kind === 'table') html = this.tableHTML();
       else if (kind === 'forge') html = this.forgeHTML();
-      else if (kind === 'combat') html = this.combatHTML();
+      // O combate é uma cena no palco (não uma janela): ela se atualiza aqui e o overlay fica livre para ajuda e relatório.
+      this.renderCombat();
       if (html && this.tipHTML) html = html.replace('</h2>', `</h2><div class="tip"><b>Dica:</b> ${this.tipHTML}</div>`);
 
       root.hidden = !html;
@@ -3632,12 +3654,95 @@
       </div>`;
     }
 
-    // Combate: o inimigo em cima, com as cartas na formação da mesa (fila da frente aberta, fila de trás travada
-    // por baixo da frente), e a sua mão embaixo. Marque cartas dos dois lados: soma igual derruba; senão, troca 1 por 1.
-    combatHTML() {
+    // ---------- combate: uma cena no palco ----------
+    //
+    // O combate não é mais uma janela. O mapa fica escurecido atrás e o inimigo aparece em zoom no palco, com as cartas
+    // dele embaixo (a fila da frente aberta, as de trás viradas e cobertas pelas da frente). A sua mão, o Poder e o
+    // Inventário seguem embaixo e as pilhas e o histórico na coluna da direita: você marca cartas lá e cá, e a soma dos
+    // dois lados aparece no meio. À esquerda ficam os ajustes de ±1 (anéis e pergaminhos) e à direita as jogadas
+    // (derrubar, trocar 1 por 1 e fugir). Marque cartas dos dois lados: soma igual derruba; senão, troca 1 por 1.
+    renderCombat() {
       const g = this.game;
+      const box = this.el.combat;
       const enemy = g.combatEnemy();
-      const { html: selHTML, sum, sums, cards, exact } = this.selectionHTML(true);
+      document.body.classList.toggle('in-combat', Boolean(enemy));
+      this.el.mapWrap.classList.toggle('in-combat', Boolean(enemy));
+      if (!enemy) {
+        if (!box.hidden) {
+          box.hidden = true;
+          box.innerHTML = '';
+        }
+        this.combatKey = null;
+        return;
+      }
+      // O esqueleto (nome e desenho do inimigo) é montado uma vez por combate: assim o desenho não recomeça a cada toque.
+      const key = `${g.floorNo}:${enemy.id}:${this.artActive() ? 'art' : 'classico'}`;
+      if (key !== this.combatKey || box.hidden || !box.firstElementChild) {
+        this.combatKey = key;
+        box.innerHTML = this.combatSkeleton(enemy);
+        box.hidden = false;
+        box.classList.remove('enter');
+        void box.offsetWidth;
+        box.classList.add('enter');
+        // a entrada (zoom no inimigo) toca uma vez; depois a classe sai para não atrapalhar o golpe
+        clearTimeout(this.enterTimer);
+        this.enterTimer = setTimeout(() => box.classList.remove('enter'), 700);
+      }
+      const p = this.combatParts(enemy);
+      box.style.setProperty('--n', p.widest);
+      box.style.setProperty('--eh', p.height);
+      box.style.setProperty('--eb', p.budget);
+      box.classList.toggle('exact', p.exact);
+      const part = (name) => box.querySelector(`[data-part="${name}"]`);
+      part('adjust').innerHTML = p.adjust;
+      part('actions').innerHTML = p.actions;
+      part('ability').innerHTML = p.ability;
+      part('cards').innerHTML = p.cards;
+      part('cards').classList.toggle('dense', p.dense);
+      part('sumfoe').innerHTML = p.sumFoe;
+      part('sumfoe').className = `cs-sum foe${p.marked ? ' on' : ''}${p.exact ? ' exact' : ''}`;
+      part('summine').innerHTML = p.sumMine;
+      part('summine').className = `cs-sum mine${p.picked ? ' on' : ''}${p.exact ? ' exact' : ''}`;
+      part('status').innerHTML = p.status;
+      part('jokers').innerHTML = p.jokers;
+      // O golpe: o inimigo se encolhe (e treme) uma vez, e depois volta a respirar.
+      if (this.foeHit) {
+        this.foeHit = false;
+        for (const n of box.querySelectorAll('.cs-foe, .cs-foe .enemy-sprite')) {
+          n.classList.remove('hit');
+          void n.offsetWidth;
+          n.classList.add('hit');
+          // (o fim da animação de um filho também sobe até aqui: só vale o do próprio elemento)
+          const done = (e) => {
+            if (e.target !== n) return;
+            n.classList.remove('hit');
+            n.removeEventListener('animationend', done);
+          };
+          n.addEventListener('animationend', done);
+        }
+      }
+    }
+
+    combatSkeleton(enemy) {
+      const name = enemy.boss ? 'Chefão' : ENEMY_NAME[enemy.kind] || 'Inimigo';
+      const figure = enemy.kind === 'rat' ? RAT_SVG : this.artActive() ? `<i class="sprite enemy-sprite k-${enemy.kind}${enemy.boss ? ' boss' : ''}"></i>` : ENEMY_SVG;
+      return `<div class="cs-side cs-left" data-part="adjust"></div>
+        <div class="cs-center">
+          <div class="cs-plate"><span class="cs-name">${name}</span><span data-part="ability"></span></div>
+          <div class="cs-foe k-${enemy.kind}${enemy.boss ? ' boss' : ''}">${figure}</div>
+          <div class="cs-sum foe" data-part="sumfoe"></div>
+          <div class="cs-cards enemy-board" data-part="cards"></div>
+          <div class="cs-sum mine" data-part="summine"></div>
+          <p class="cs-status" data-part="status"></p>
+          <div class="cs-jokers" data-part="jokers"></div>
+        </div>
+        <div class="cs-side cs-right" data-part="actions"></div>`;
+    }
+
+    // Tudo o que muda a cada toque na cena: cartas do inimigo, as duas somas, o texto de ajuda e os botões.
+    combatParts(enemy) {
+      const g = this.game;
+      const { sum, sums, cards, exact, jokers } = this.selectionHTML(true);
       const flipped = this.revealIds;
       this.revealIds = [];
       // Só dá para marcar o que continua aberto.
@@ -3655,10 +3760,8 @@
           const n = coversLeft(enemy, c);
           html = `<div class="card back dungeon enemy-card locked" data-ov="hidden-card" data-id="${c.id}" title="Carta travada: sai da frente dela primeiro"><span class="badge lock">🔒 ${n} na frente</span></div>`;
         } else {
-          const isMarked = this.targets.has(c.id);
-          const state = isMarked ? ` target${exact ? ' exact' : ''}` : '';
-          const badge = isMarked ? (exact ? 'soma exata' : `alvo ${c.rank}`) : `valor ${c.rank}`;
-          html = cardHTML(c, { badge, extra: `enemy-card${state}${flipped.includes(c.id) ? ' flip' : ''}` }).replace('class="card', 'data-ov="attack" class="card');
+          const state = this.targets.has(c.id) ? ` target${exact ? ' exact' : ''}` : '';
+          html = cardHTML(c, { extra: `enemy-card${state}${flipped.includes(c.id) ? ' flip' : ''}` }).replace('class="card', 'data-ov="attack" class="card');
         }
         return `<div class="board-slot">${html}</div>`;
       };
@@ -3667,68 +3770,48 @@
         .reverse()
         .map((ids, k) => `<div class="board-row ${k === rows.length - 1 ? 'front' : 'back'}">${ids.map((id) => slot(byId.get(id))).join('')}</div>`)
         .join('');
-      const widest = Math.max(...rows.map((r) => r.length));
-      const handRow = g.hand
-        .map((c) =>
-          cardHTML(c, {
-            selected: this.sel.includes(c.id),
-            badge: g.pending.frozen === c.id ? '❄ congelada' : this.cardBadge(c),
-            extra: g.pending.frozen === c.id ? 'frozen' : '',
-          }).replace('class="card', 'data-ov="combat-toggle" class="card'),
-        )
-        .join('');
+      // Altura do conjunto, em larguras de carta: serve para a carta caber na cena (a fila de trás aparece só em parte).
+      const height = rows.length === 1 ? 1.4 : rows.length === 2 ? 2.35 : 1.9 + 0.35 * (rows.length - 2);
+
       const last = g.hand.length === 1;
       const pick = cards.length === 1 ? cards[0] : null;
-      const fleeLabel = pick
-        ? `Fugir descartando ${label(pick)}${last ? ' (é a sua última carta: você perde)' : ''}`
-        : 'Fugir (escolha 1 carta para descartar)';
-
       // Troca: 1 carta da mão por 1 carta aberta de valor diferente; a diferença queima cartas do deck.
       const canTrade = cards.length === 1 && marked.length === 1 && !exact;
       const damage = canTrade ? g.tradeCost(this.sel, marked[0].rank) : 0;
       let status;
-      if (!cards.length && !marked.length) status = g.tutorial ? 'Dica do treino: as duas cartas dele somam 5 + 3 = 8, e o ♠4 vale o dobro (8). Marque o ♠4 e as duas cartas dele.' : 'Escolha cartas da sua mão e cartas abertas do inimigo: se as somas forem iguais, as cartas dele caem.';
+      if (!cards.length && !marked.length) status = g.tutorial ? 'Dica do treino: as duas cartas dele somam 5 + 3 = 8, e o ♠4 vale o dobro (8). Marque o ♠4 e as duas cartas dele.' : `${this.isTouch() ? 'Toque' : 'Escolha'} cartas da <b>sua mão</b> e cartas <b>abertas</b> do inimigo: se as <b>somas forem iguais</b>, as dele caem (♠ vale o número ou o dobro).`;
       else if (!marked.length) status = 'Agora toque nas cartas <b>abertas</b> do inimigo que você quer derrubar.';
       else if (!cards.length) status = `Marcado: ${markedCost} do inimigo. Escolha cartas da sua mão que somem ${markedCost}.`;
       else if (exact) status = `★ <b>${markedCost} = ${markedCost}</b>: soma exata! Toque em Derrubar.`;
       else if (canTrade) status = `Não bate (${sum} × ${markedCost}). Preso? <b>Trocar</b> custa <b>${damage}</b> de dano: ${damage} carta${damage === 1 ? '' : 's'} do seu deck queima${damage === 1 ? '' : 'm'}.`;
       else status = `Não bate: a sua soma é ${sum}${sums.length > 1 ? ` (ou ${sums.slice(0, -1).join(', ')})` : ''} e a dele ${markedCost}.`;
 
-      const hit = this.foeHit;
-      this.foeHit = false;
-      const stash = g.slotsOpen
-        ? `<div class="combat-stash"><div class="stash-row modal-stash">${this.slotsInner()}</div><h4>Inventário ${g.stash.length}/${g.slotsOpen}</h4></div>`
-        : '<div></div>';
-      const touch = this.isTouch();
-      return `<div class="modal combat">
-        <h2>⚔ Combate!</h2>
-        <p class="combat-help">${touch ? 'Toque' : 'Escolha'} cartas da <b>sua mão</b> e cartas <b>abertas</b> do inimigo: <b>somas iguais</b> derrubam (<b>♠ vale o número ou o dobro</b>). 🔒 abre quando as da frente caem. <b>Preso?</b> Troque 1 por 1: a diferença <b>queima cartas do seu deck</b>.</p>
-        <div class="combat-foe">
-          <div class="foe-box">
-            <div class="foe">${enemy.kind === 'rat' ? RAT_SVG : `<i class="sprite enemy-sprite k-${enemy.kind}${enemy.boss ? ' boss' : ''}${hit ? ' hit' : ''}"></i>`}</div>
-            <span class="foe-name">${enemy.boss ? 'Chefão' : ENEMY_NAME[enemy.kind] || 'Inimigo'}</span>
-            ${this.abilityHTML(enemy)}
-          </div>
-          <div class="enemy-board${rows.length > 2 ? ' dense' : ''}" style="--n:${widest}">${board}</div>
-        </div>
-        <div class="combat-mine">
-          <div class="combat-power power">${this.powerHTML()}</div>
-          <div class="combat-hand">
-            <div class="cardrow">${handRow || '<p class="muted">Sua mão está vazia.</p>'}</div>
-            <h4>Sua mão</h4>
-          </div>
-          ${stash}
-        </div>
-        <div class="combat-sel${exact ? ' exact' : ''}">${cards.length ? selHTML : ''}<p class="combat-status">${status}</p></div>
-        <div class="actions">
-          <button class="btn primary" data-ov="attack-go" ${exact ? '' : 'disabled'}>${exact ? `Derrubar ${marked.length} carta${marked.length === 1 ? '' : 's'} (${markedCost})` : 'Derrubar (soma exata)'}</button>
-          <button class="btn ${canTrade ? 'danger' : ''}" data-ov="trade-go" ${canTrade ? '' : 'disabled'} title="Preso? Troque 1 carta da mão por 1 carta aberta do inimigo de valor diferente: a diferença queima cartas do seu deck.">${canTrade ? `Trocar ${label(cards[0])} por ${label(marked[0])} · dano ${damage}` : 'Trocar 1 por 1 (dano = diferença)'}</button>
-          ${g.rings.map((r, i) => this.combatRingHTML(r, i)).join('')}
-          ${this.combatScrollsHTML()}
-          ${enemy.boss ? '' : `<button class="btn ${last && pick ? 'danger' : ''}" data-ov="flee" ${pick ? '' : 'disabled'}>${fleeLabel}</button>`}
-          <button class="btn" data-act="clear" ${cards.length || marked.length ? '' : 'disabled'}>Limpar seleção</button>
-        </div>
-      </div>`;
+      // À esquerda: anéis de ±1 e de naipe e pergaminhos de Precisão, que mexem na carta escolhida da mão.
+      const adj = g.rings.map((r, i) => this.combatRingHTML(r, i)).join('') + this.combatScrollsHTML();
+      const trade = canTrade ? `${label(cards[0])} por ${label(marked[0])}` : 'uma carta de cada lado';
+      const flee = pick ? `descarta ${label(pick)}${last ? ' (a sua última: você perde)' : ''}` : 'descarta 1 carta da mão';
+      const attack = exact ? `${marked.length} carta${marked.length === 1 ? '' : 's'} · ${markedCost}` : 'precisa de soma exata';
+      return {
+        cards: board,
+        dense: rows.length > 2,
+        widest: Math.max(...rows.map((r) => r.length)),
+        height,
+        // quanto da altura da cena (em %) as cartas dele podem ocupar: mais filas, mais altura
+        budget: rows.length === 1 ? 30 : rows.length === 2 ? 36 : 40,
+        exact,
+        marked: marked.length > 0,
+        picked: cards.length > 0,
+        sumFoe: `<small>Inimigo</small><b>${marked.length ? markedCost : '–'}</b>`,
+        sumMine: `<small>Você</small><b>${cards.length ? sum : '–'}</b>${cards.length && sums.length > 1 ? `<em>ou ${sums.slice(0, -1).join(', ')}</em>` : ''}${exact ? '<i>★</i>' : ''}`,
+        status,
+        jokers,
+        ability: this.abilityHTML(enemy),
+        adjust: adj ? `<div class="cs-box"><h4>Ajustar a carta escolhida</h4><div class="cs-adj">${adj}</div></div>` : '',
+        actions: `<button class="btn primary cs-btn" data-ov="attack-go" ${exact ? '' : 'disabled'}><b>Derrubar</b><small>${attack}</small></button>
+          <button class="btn cs-btn${canTrade ? ' danger' : ''}" data-ov="trade-go" ${canTrade ? '' : 'disabled'} title="Preso? Troque 1 carta da mão por 1 carta aberta do inimigo de valor diferente: a diferença queima cartas do seu deck."><b>${canTrade ? `Trocar · dano ${damage}` : 'Trocar 1 por 1'}</b><small>${trade}</small></button>
+          ${enemy.boss ? '' : `<button class="btn cs-btn${last && pick ? ' danger' : ''}" data-ov="flee" ${pick ? '' : 'disabled'}><b>Fugir</b><small>${flee}</small></button>`}
+          <button class="btn link cs-clear" data-act="clear" ${cards.length || marked.length ? '' : 'disabled'}>Limpar seleção</button>`,
+      };
     }
 
     // Habilidade do inimigo (experimento Rogue), com o que ela já fez neste combate.
@@ -3848,7 +3931,7 @@
         <h4>Salas especiais e secretas</h4>
         <p>Do <b>andar 2</b> em diante, cada andar tem um <b>beco sem saída extra</b> (a porta custa cartas, como as outras) com um <b>poço</b>, um <b>altar</b>, uma <b>biblioteca</b>, uma <b>cripta</b>, uma <b>mesa de jogo</b> ou uma <b>oficina</b>, e a ordem muda a cada partida. O <b>poço</b> é de graça, mas só se descobre o que faz bebendo (a cor da água decide: <b>enche a mana</b>, põe <b>cartas novas no deck</b> ou <b>enche a mão</b>), e seca depois. No <b>altar</b> você sacrifica 1 carta da mão: o valor dela decide o prêmio. Na <b>biblioteca</b> você paga ${this.game.config.libraryCost} carta e leva 1 entre 3 pergaminhos. Na <b>cripta</b> você paga ${this.game.config.cryptCost} carta e escolhe ${this.game.config.cryptTake} do <b>cemitério</b> para voltarem ao deck. Na <b>mesa de jogo</b> você aposta 1 carta da mão contra uma da casa: se a sua for maior, volta e ganha ${this.game.config.tableWinCards} cartas novas no deck; se for igual, volta; se for menor, você a perde. Na <b>oficina</b> você ${this.game.config.forgeCost ? `queima ${this.game.config.forgeCost} carta para dar a outra` : 'dá a uma carta da mão'} <b>+1 de valor</b> ou <b>outro naipe</b>, para sempre. Alguns andares têm também uma <b>sala secreta</b>: a porta parece parede e você a descobre <b>passando perto dela</b>, a até ${this.game.config.secretFindRadius} casas, na mesma sala (${Math.round(this.game.config.secretFindChance * 100)}% de chance por turno). Dentro há um baú que abre de graça e guarda um anel e um Bife.</p>
         <h4>Pergaminhos de Precisão e do Ladrão</h4>
-        <p>Têm o mesmo efeito dos anéis de mesmo nome, mas são <b>de uso único e não gastam mana</b>: escolha 1 carta da mão e toque em <b>−1</b> ou <b>+1</b> no pergaminho da bolsa (o de <b>Precisão</b> também aparece na janela de combate). A carta sobe ou desce 1 (o Ás não desce e o Rei não sobe) e o pergaminho some. Saem de baús e de inimigos, no mesmo sorteio das poções e do mapa, e têm nome claro (não são misteriosos).</p>
+        <p>Têm o mesmo efeito dos anéis de mesmo nome, mas são <b>de uso único e não gastam mana</b>: escolha 1 carta da mão e toque em <b>−1</b> ou <b>+1</b> no pergaminho da bolsa (o de <b>Precisão</b> também aparece na cena de combate). A carta sobe ou desce 1 (o Ás não desce e o Rei não sobe) e o pergaminho some. Saem de baús e de inimigos, no mesmo sorteio das poções e do mapa, e têm nome claro (não são misteriosos).</p>
         <h4>Pergaminho de Inventário</h4>
         <p>Cada inimigo tem <b>30% de chance</b> de deixar um pergaminho <b>no lugar da carta de vitória</b>, e <b>30% dos baús</b> o guardam <b>no lugar das cartas</b>. Você já começa com <b>1 slot de brinde</b>, e cada pergaminho abre mais um (até 3 no total) ao lado da mão, onde você <b>guarda cartas</b> para usar depois. Para guardar, escolha 1 carta da mão e toque num slot livre (no baú, marque a carta e toque no slot: ela é guardada em vez de descartada). Toque na carta guardada para devolvê-la à mão. Guardar e devolver é grátis, a qualquer momento, até em combate, mas para <b>usar</b> a carta ela precisa estar na mão (o limite de 7 continua). Se a mão esvaziar mas houver cartas nos slots, você ainda não perdeu.</p>
         <h4>No iPad (toque)</h4>
