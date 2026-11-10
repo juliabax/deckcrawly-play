@@ -15,52 +15,59 @@
   <body>
     <div id="app">
       <div id="notice" class="notice" role="note" hidden></div>
-      <header class="topbar">
-        <div class="brand">
-          <h1>DECK CRAWLY</h1>
-          <span>Olha o naipe dessa masmorra</span>
-        </div>
-        <div class="hud">
-          <span id="hud-floor" class="pill"></span>
-          <span id="hud-turn" class="pill" title="Cada passo e cada porta aberta é 1 turno"></span>
-          <span id="hud-hunger" class="pill"></span>
-          <span id="hud-seed" class="pill muted"></span>
-          <button id="btn-fog" class="btn" title="Liga ou desliga a névoa (tecla F)"></button>
-          <button id="btn-fx" class="btn" title="Liga ou desliga animações e efeitos (tecla E)"></button>
-          <button id="btn-sound" class="btn" title="Liga ou desliga o som (tecla M)"></button>
-          <button id="btn-art" class="btn" title="Alterna entre a arte de pixel art e o visual clássico (tecla A)" hidden></button>
-          <button id="btn-tour" class="btn" title="Tutorial guiado: aprenda jogando">Como jogar</button>
-          <button id="btn-help" class="btn">Regras</button>
-          <button id="btn-report" class="btn" title="Copia um resumo da partida (seed, andar, resultado) para enviar a quem fez o jogo">Relatório</button>
-          <button id="btn-new" class="btn">Novo jogo</button>
-        </div>
-      </header>
-
       <main class="stage">
-        <section id="map-wrap" class="map-wrap">
-          <div id="map" class="map"></div>
-          <div class="zoom" role="group" aria-label="Zoom do mapa">
-            <button id="btn-center" class="btn" title="Centralizar no personagem (tecla C)" aria-label="Centralizar no personagem" disabled>
-              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6" /><path d="M8 1v3M8 12v3M1 8h3M12 8h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
-            </button>
-            <button id="btn-zoom-out" class="btn" title="Afastar (tecla -)" aria-label="Afastar">−</button>
-            <span id="zoom-level" class="zoom-level" title="100% = casas de 40 px, sempre o mesmo tamanho"></span>
-            <button id="btn-zoom-in" class="btn" title="Aproximar (tecla +)" aria-label="Aproximar">+</button>
-          </div>
+        <section class="board">
+          <section id="map-wrap" class="map-wrap">
+            <div id="map" class="map"></div>
+            <div class="map-hud">
+              <span id="hud-floor" class="pill"></span>
+              <span id="hud-turn" class="pill" title="Cada passo e cada porta aberta é 1 turno"></span>
+              <span id="hud-hunger" class="pill"></span>
+            </div>
+            <div class="zoom" role="group" aria-label="Zoom do mapa">
+              <button id="btn-center" class="btn" title="Centralizar no personagem (tecla C)" aria-label="Centralizar no personagem" disabled>
+                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6" /><path d="M8 1v3M8 12v3M1 8h3M12 8h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
+              </button>
+              <button id="btn-zoom-out" class="btn" title="Afastar (tecla -)" aria-label="Afastar">−</button>
+              <span id="zoom-level" class="zoom-level" title="100% = casas de 40 px, sempre o mesmo tamanho"></span>
+              <button id="btn-zoom-in" class="btn" title="Aproximar (tecla +)" aria-label="Aproximar">+</button>
+            </div>
+          </section>
+
+          <footer class="handbar">
+            <div id="power" class="power" aria-label="Poder da carta"></div>
+            <div id="hand" class="hand"></div>
+            <div id="stash" class="stash" aria-label="Inventário"></div>
+          </footer>
         </section>
+
         <aside class="side">
+          <div class="side-top">
+            <button id="btn-tour" class="btn" title="Tutorial guiado: aprenda jogando">Como jogar</button>
+            <button id="btn-new" class="btn">Novo jogo</button>
+            <div class="menu-wrap">
+              <button id="btn-menu" class="btn menu-btn" aria-label="Menu" aria-haspopup="true" aria-expanded="false" title="Regras, relatório e opções de teste">
+                <svg viewBox="0 0 28 22" width="28" height="22" aria-hidden="true"><path d="M3 4h22M7 11h18M3 18h20" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" /></svg>
+              </button>
+              <div id="menu" class="menu" hidden>
+                <button id="btn-help" class="btn" data-menu-close>Regras</button>
+                <button id="btn-report" class="btn" data-menu-close title="Copia um resumo da partida (seed, andar, resultado) para enviar a quem fez o jogo">Relatório</button>
+                <span class="menu-sep">Opções de teste</span>
+                <button id="btn-fog" class="btn" title="Liga ou desliga a névoa (tecla F)"></button>
+                <button id="btn-fx" class="btn" title="Liga ou desliga animações e efeitos (tecla E)"></button>
+                <button id="btn-sound" class="btn" title="Liga ou desliga o som (tecla M)"></button>
+                <button id="btn-art" class="btn" title="Alterna entre a arte de pixel art e o visual clássico (tecla A)" hidden></button>
+                <span id="hud-seed" class="pill muted"></span>
+              </div>
+            </div>
+          </div>
           <div id="coach" class="coach" aria-live="polite" hidden></div>
-          <div id="piles" class="piles"></div>
           <div id="panel" class="panel"></div>
           <div id="log" class="log"></div>
+          <div id="piles" class="piles"></div>
+          <div id="gear" class="gear" aria-label="Bolsa e anéis"></div>
         </aside>
       </main>
-
-      <footer class="handbar">
-        <div id="power" class="power" aria-label="Poder da carta"></div>
-        <div id="hand" class="hand"></div>
-        <div id="stash" class="stash" aria-label="Inventário"></div>
-      </footer>
 
       <div id="toast" class="toast" role="status"></div>
       <div id="overlay" class="overlay" hidden></div>

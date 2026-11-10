@@ -38,40 +38,8 @@ body {
 #app {
   height: 100vh;
   height: 100dvh;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-}
-
-/* ---------- topo ---------- */
-
-.topbar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 16px;
-  flex-wrap: wrap;
-}
-
-.brand h1 {
-  margin: 0;
-  font-size: 22px;
-  letter-spacing: 0.14em;
-  color: var(--accent);
-  line-height: 1;
-}
-
-.brand span {
-  font-size: 12px;
-  color: var(--muted);
-  font-style: italic;
-}
-
-.hud {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  flex-direction: column;
 }
 
 .pill {
@@ -113,16 +81,6 @@ html:not(.touch) .btn:hover:not(:disabled) {
   color: #2a1c05;
   border-color: var(--accent);
   font-weight: 700;
-}
-
-/* ---------- palco ---------- */
-
-.stage {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 330px;
-  gap: 16px;
-  padding: 0 16px;
-  min-height: 0;
 }
 
 .map-wrap {
@@ -445,27 +403,6 @@ html:not(.touch) .btn:hover:not(:disabled) {
   pointer-events: none;
 }
 
-/* ---------- lateral ---------- */
-
-.side {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-height: 0;
-  overflow: hidden; /* a lateral nunca invade a mão e o inventário: o que não cabe é o histórico, que encolhe */
-}
-
-:where(.side) > .piles,
-:where(.side) > .panel,
-:where(.side) > .coach {
-  flex: none;
-}
-
-:where(.side) > .panel {
-  max-height: 100%;
-  overflow: auto;
-}
-
 .piles {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -758,13 +695,6 @@ html:not(.touch) .hand .card:hover {
   background: repeating-linear-gradient(45deg, #7c2d2d 0 6px, #5f2222 6px 12px);
 }
 
-.handbar {
-  padding: 28px 16px 22px;
-  padding-bottom: max(22px, env(safe-area-inset-bottom, 0px));
-  display: flex;
-  justify-content: center;
-}
-
 .hand,
 .cardrow {
   display: flex;
@@ -886,106 +816,6 @@ html:not(.touch) .hand .card:hover {
 
 .modal.lose h2 {
   color: var(--bad);
-}
-
-/* ---------- telas estreitas ---------- */
-
-@media (max-width: 900px) {
-  #app {
-    height: auto;
-    min-height: 100dvh;
-    grid-template-rows: auto auto auto;
-  }
-
-  .stage {
-    grid-template-columns: 1fr;
-  }
-
-  .map-wrap {
-    height: 56vh;
-  }
-
-  .card {
-    --cw: 64px;
-  }
-
-  .slot {
-    width: 64px;
-    height: calc(64px * 1.4);
-  }
-
-  .hand {
-    gap: 8px;
-  }
-
-  .toast {
-    bottom: 160px;
-  }
-}
-
-/* ---------- tablet em retrato (iPad) ---------- */
-
-/* Tudo cabe na tela sem rolar: o mapa ocupa o que sobra, a lateral vira uma faixa
-   compacta (pilhas + painel) e a mão fica embaixo, com cartas grandes para o dedo. */
-@media (min-width: 600px) and (max-width: 900px) and (min-height: 700px) {
-  #app {
-    height: 100vh;
-    height: 100dvh;
-    grid-template-rows: auto minmax(0, 1fr) auto;
-  }
-
-  .stage {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) auto;
-    gap: 10px;
-  }
-
-  .map-wrap {
-    height: auto;
-  }
-
-  .side {
-    flex-direction: row;
-    align-items: stretch;
-    gap: 10px;
-  }
-
-  .piles {
-    flex: none;
-    width: 430px;
-  }
-
-  .panel {
-    flex: 1;
-    min-width: 0;
-    max-height: 156px;
-    overflow: auto;
-  }
-
-  .log {
-    display: none;
-  }
-
-  .card {
-    --cw: 92px;
-  }
-
-  .slot {
-    width: 92px;
-    height: calc(92px * 1.4);
-  }
-
-  .hand {
-    gap: 12px;
-  }
-
-  .handbar {
-    padding-top: 22px;
-  }
-
-  .toast {
-    bottom: 230px;
-  }
 }
 
 /* ---------- modo toque ---------- */
@@ -1483,11 +1313,6 @@ html.art .foe {
 
 /* ---------- inventário (Pergaminho de Inventário) ---------- */
 
-.handbar {
-  align-items: flex-end;
-  gap: 28px;
-}
-
 .stash {
   display: flex;
   flex-direction: column;
@@ -1501,16 +1326,6 @@ html.art .foe {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-}
-
-/* Telas largas: o inventário fica de um lado e a bolsa com os anéis do outro, para a barra de baixo ficar baixa
-   e não espremer o painel da direita. */
-@media (min-width: 1100px) {
-  .stash {
-    flex-direction: row;
-    align-items: flex-end;
-    gap: 22px;
-  }
 }
 
 .stash-label {
@@ -1609,30 +1424,6 @@ html.art .foe {
 
 .no-fx .stash-slot.fresh {
   animation: none;
-}
-
-@media (min-width: 600px) and (max-width: 900px) and (min-height: 700px) {
-  .handbar {
-    gap: 14px;
-  }
-
-  .stash-slot {
-    width: 54px;
-    height: 76px;
-  }
-
-  .stash-slot .card {
-    --cw: 50px;
-  }
-
-  .touch .stash-slot {
-    width: 58px;
-    height: 80px;
-  }
-
-  .touch .stash-slot .card {
-    --cw: 54px;
-  }
 }
 
 /* ---------- efeitos da leva 2 ---------- */
@@ -2185,15 +1976,6 @@ html:not(.touch) .link:hover {
   border-color: var(--line);
 }
 
-@media (min-width: 600px) and (max-width: 900px) and (min-height: 700px) {
-  .power {
-    width: 96px;
-  }
-
-  .power-btn span {
-    font-size: 12px;
-  }
-}
 
 /* ---------- abertura do tutorial: foco + texto digitado ---------- */
 @property --fx { syntax: '<length>'; inherits: false; initial-value: 50vw; }
@@ -3327,4 +3109,340 @@ html.art .t-enemy .enemy-cards.boss-open {
   font-size: calc(var(--tile) * 0.3);
   line-height: 1.2;
   white-space: nowrap;
+}
+
+/* =====================================================================================================================
+   LAYOUT (mock da Julia). Tudo em medidas relativas à tela, para servir em qualquer tamanho:
+     - esquerda: o mapa (com os selos Andar / Turno / Fome no canto) e, embaixo, poder + mão + inventário;
+     - direita: botões e menu sanduíche, histórico, pilhas e, embaixo, bolsa e anéis.
+   Em tela quadrada ou em pé (celular, iPad em retrato) tudo empilha: mapa, pilhas e bolsa, mão.
+   ===================================================================================================================== */
+
+:root {
+  --gap: clamp(8px, 1.1vw, 20px);
+  --side-w: clamp(300px, 27vw, 560px);
+  --hand-cw: clamp(58px, min(7.2vw, 15vh), 150px); /* largura das cartas da mão; o resto da barra de baixo acompanha */
+  --pile-cw: clamp(32px, 3vw, 62px);
+}
+
+#app > .stage {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--side-w);
+  gap: var(--gap);
+  padding: var(--gap);
+  padding-bottom: max(var(--gap), env(safe-area-inset-bottom, 0px));
+}
+
+.board {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: var(--gap);
+  min-height: 0;
+  min-width: 0;
+}
+
+/* selos no canto do mapa */
+.map-hud {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.map-hud .pill {
+  font-size: clamp(12px, 1.15vw, 18px);
+  padding: 0.35em 0.95em;
+  background: rgba(37, 29, 49, 0.9);
+}
+
+.map-hud .pill[hidden] {
+  display: none;
+}
+
+/* coluna da direita */
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  min-height: 0;
+  overflow: visible;
+}
+
+.side > * {
+  flex: none;
+}
+
+.side > .log {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: min(36%, 360px);
+  font-size: clamp(12px, 1.05vw, 17px);
+}
+
+/* o espaço que sobra fica entre o histórico e as pilhas, como no mock */
+.side > .piles {
+  margin-top: auto;
+}
+
+.side > .panel {
+  max-height: 30%;
+  overflow: auto;
+}
+
+.panel[hidden],
+.gear[hidden] {
+  display: none;
+}
+
+.gear-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.side-top {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: clamp(8px, 0.9vw, 14px);
+}
+
+.side-top .btn {
+  font-size: clamp(13px, 1.15vw, 18px);
+  padding: 0.45em 1em;
+}
+
+.menu-wrap {
+  position: relative;
+}
+
+.menu-btn {
+  display: grid;
+  place-items: center;
+  padding: 0.4em 0.7em !important;
+  background: transparent;
+  border-color: transparent;
+}
+
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 60;
+  min-width: 230px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+}
+
+.menu[hidden] {
+  display: none;
+}
+
+.menu .btn {
+  width: 100%;
+  text-align: left;
+}
+
+.menu .btn[hidden] {
+  display: none;
+}
+
+.menu-sep {
+  margin-top: 4px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.menu .pill {
+  align-self: flex-start;
+}
+
+/* pilhas na coluna: crescem com a tela */
+.pile {
+  font-size: clamp(10px, 0.9vw, 15px);
+}
+
+.pile .stack {
+  --cw: var(--pile-cw);
+  height: calc(var(--pile-cw) * 1.45);
+}
+
+.pile .card.small {
+  --cw: var(--pile-cw);
+}
+
+.pile .empty {
+  width: var(--pile-cw);
+  height: calc(var(--pile-cw) * 1.4);
+}
+
+.pile b {
+  font-size: clamp(16px, 1.7vw, 30px);
+}
+
+/* bolsa e anéis (embaixo, na coluna da direita) */
+.gear {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+/* barra de baixo: poder, mão e inventário */
+.handbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--gap);
+  padding-top: clamp(14px, 2vh, 26px); /* espaço para a carta escolhida subir */
+}
+
+.handbar .power {
+  width: clamp(96px, 11vw, 220px);
+}
+
+.handbar .hand {
+  flex: 1 1 0;
+  min-width: 0;
+  flex-wrap: nowrap;
+  justify-content: center;
+  gap: calc(var(--hand-cw) * 0.03);
+}
+
+.hand .card {
+  --cw: var(--hand-cw);
+}
+
+.slot {
+  width: var(--hand-cw);
+  height: calc(var(--hand-cw) * 1.4);
+}
+
+.handbar .stash {
+  flex: none;
+  padding-bottom: 0;
+}
+
+.handbar .stash-slot {
+  width: calc(var(--hand-cw) * 0.62);
+  height: calc(var(--hand-cw) * 0.88);
+}
+
+.handbar .stash-slot .card {
+  --cw: calc(var(--hand-cw) * 0.56);
+}
+
+.handbar .stash-label {
+  font-size: clamp(10px, 0.9vw, 14px);
+}
+
+.toast {
+  bottom: calc(var(--hand-cw) * 1.4 + 60px);
+}
+
+/* tela quadrada ou em pé (celular, iPad em retrato): tudo empilha e a mão fica sempre à vista */
+@media (max-aspect-ratio: 1/1), (max-width: 760px) {
+  :root {
+    --gap: 8px;
+    --hand-cw: clamp(50px, min(17vw, 11vh), 112px);
+    --pile-cw: clamp(30px, 7vw, 56px);
+  }
+
+  .stage {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto auto auto auto auto;
+    row-gap: 6px;
+  }
+
+  .board,
+  .side {
+    display: contents;
+  }
+
+  .side-top {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .board > .map-wrap {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .side > .coach {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+
+  .side > .panel {
+    grid-column: 1 / -1;
+    grid-row: 4;
+    max-height: 120px;
+  }
+
+  .side > .piles {
+    grid-column: 1 / -1;
+    grid-row: 5;
+    margin-top: 0;
+  }
+
+  .side > .gear {
+    grid-column: 1 / -1;
+    grid-row: 6;
+    flex-direction: row;
+    justify-content: space-around;
+    padding: 6px;
+  }
+
+  .board > .handbar {
+    grid-column: 1 / -1;
+    grid-row: 7;
+    flex-wrap: wrap;
+    padding-top: 22px;
+  }
+
+  .handbar .hand {
+    flex: 1 1 100%;
+    order: 0;
+    padding-bottom: 14px;
+  }
+
+  .handbar .power {
+    order: 1;
+  }
+
+  .handbar .stash {
+    order: 2;
+  }
+
+  .side > .log {
+    display: none;
+  }
+
+  .map-hud {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
 }

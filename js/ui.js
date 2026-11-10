@@ -155,6 +155,7 @@
         seed: $('hud-seed'),
         fx: $('fx'),
         stash: $('stash'),
+        gear: $('gear'),
         power: $('power'),
       };
       this.sel = [];
@@ -358,14 +359,18 @@
         const card = e.target.closest('.card');
         if (card) this.toggleCard(card.dataset.id);
       });
-      this.el.stash.addEventListener('click', (e) => {
-        const bag = e.target.closest('[data-item]');
-        if (bag) return this.useItemClick(bag.dataset.item, Number(bag.dataset.dir) || 0);
-        const ringBtn = e.target.closest('[data-ring]');
-        if (ringBtn) return this.onRingClick(Number(ringBtn.dataset.ring), Number(ringBtn.dataset.dir) || 0);
-        const slot = e.target.closest('.stash-slot');
-        if (slot) this.onSlotClick(slot);
-      });
+      // Inventário (embaixo, ao lado da mão) e bolsa com anéis (coluna da direita) usam os mesmos toques.
+      for (const box of [this.el.stash, this.el.gear]) {
+        box.addEventListener('click', (e) => {
+          const bag = e.target.closest('[data-item]');
+          if (bag) return this.useItemClick(bag.dataset.item, Number(bag.dataset.dir) || 0);
+          const ringBtn = e.target.closest('[data-ring]');
+          if (ringBtn) return this.onRingClick(Number(ringBtn.dataset.ring), Number(ringBtn.dataset.dir) || 0);
+          const slot = e.target.closest('.stash-slot');
+          if (slot) this.onSlotClick(slot);
+        });
+      }
+      this.bindMenu();
       this.el.hand.addEventListener('mousemove', (e) => this.tiltCard(e));
       this.el.hand.addEventListener('mouseout', (e) => {
         const card = e.target.closest('.card');
@@ -442,6 +447,29 @@
       }
       const n = Number(e.key);
       if (n >= 1 && n <= 5 && this.game.hand[n - 1]) this.toggleCard(this.game.hand[n - 1].id);
+    }
+
+    // Menu sanduíche: o que é de teste e de opções fica escondido aqui (canto de cima, à direita).
+    bindMenu() {
+      const btn = document.getElementById('btn-menu');
+      const menu = document.getElementById('menu');
+      const set = (open) => {
+        menu.hidden = !open;
+        btn.setAttribute('aria-expanded', String(open));
+      };
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        set(menu.hidden);
+      });
+      menu.addEventListener('click', (e) => {
+        if (e.target.closest('[data-menu-close]')) set(false);
+      });
+      document.addEventListener('click', (e) => {
+        if (!menu.hidden && !e.target.closest('.menu-wrap')) set(false);
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !menu.hidden) set(false);
+      });
     }
 
     // A névoa fica ligada por padrão; a escolha é lembrada entre partidas.
@@ -1808,7 +1836,9 @@
     renderStash() {
       const g = this.game;
       const gear = this.bagHTML();
-      this.el.stash.innerHTML = `<div class="stash-group"><div class="stash-label">Inventário ${g.slotsOpen ? `${g.stash.length}/${g.slotsOpen}` : 'bloqueado'}</div><div class="stash-row">${this.slotsInner()}</div></div>${gear ? `<div class="stash-group gear">${gear}</div>` : ''}`;
+      this.el.stash.innerHTML = `<div class="stash-group"><div class="stash-label">Inventário ${g.slotsOpen ? `${g.stash.length}/${g.slotsOpen}` : 'bloqueado'}</div><div class="stash-row">${this.slotsInner()}</div></div>`;
+      this.el.gear.innerHTML = gear;
+      this.el.gear.hidden = !gear;
       this.newSlot = -1;
     }
 
@@ -2013,7 +2043,7 @@
         const tip = `${R.itemName(g, item.item)}: ${known ? def.text : 'efeito desconhecido, descubra usando'}. Toque para usar.`;
         chips += `<button class="bag-slot item ${def.kind}${known ? ' known' : ''}" data-item="${item.id}" title="${tip}"><i>${R.ICON[def.kind]}</i><span>${short}</span></button>`;
       }
-      return `<div class="stash-label">Bolsa ${g.items.length}/${g.config.maxItems}</div><div class="bag-row">${chips}</div>${this.ringsHTML()}`;
+      return `<div class="gear-group"><div class="stash-label">Bolsa ${g.items.length}/${g.config.maxItems}</div><div class="bag-row">${chips}</div></div><div class="gear-group">${this.ringsHTML()}</div>`;
     }
 
     // Anéis no dedo: toque num anel de naipe com 1 carta escolhida para usá-lo (1 vez por andar).
@@ -2363,11 +2393,12 @@
       }
       const cards = g.handCards(this.sel) || [];
       panel.classList.remove('exact');
+      panel.hidden = false;
       if (!cards.length) {
-        panel.innerHTML = `<h3>Turno ${g.turn}</h3>
-          <p class="muted">${this.isTouch() ? 'Toque' : 'Clique'} numa casa para andar. Marque cartas para abrir portas e baús.</p>${
-            g.adjacentTargets().some((t) => t.kind === 'chest' && t.obj.free) ? `<p><b>Baú destrancado</b> ao lado: ${this.isTouch() ? 'toque' : 'clique'} nele (de graça).</p>` : ''
-          }${this.fixtureHintHTML()}${this.ringHintHTML()}`;
+        // Parado, sem nada marcado: o painel só aparece se há algo a dizer (o resto é o cabeçalho e o histórico).
+        const hints = `${g.adjacentTargets().some((t) => t.kind === 'chest' && t.obj.free) ? `<p><b>Baú destrancado</b> ao lado: ${this.isTouch() ? 'toque' : 'clique'} nele (de graça).</p>` : ''}${this.fixtureHintHTML()}${this.ringHintHTML()}`;
+        panel.innerHTML = hints;
+        panel.hidden = !hints;
         return;
       }
 
