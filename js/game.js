@@ -49,9 +49,9 @@
     wellDeckCards: 3, // poço que enche o deck: cartas novas
     libraryCost: 1, // cartas pagas para levar 1 pergaminho da biblioteca
     cryptCost: 1, // cripta: cartas pagas da mão para trazer cartas de volta do cemitério
-    cryptTake: 2, // ...e quantas cartas do cemitério voltam ao deck (a escolha é sua)
+    cryptTake: 4, // ...e quantas cartas do cemitério voltam ao deck (a escolha é sua)
     tableWinCards: 2, // mesa de jogo: cartas novas no deck quando a sua aposta é maior que a da casa
-    forgeCost: 1, // oficina: cartas queimadas da mão para melhorar outra
+    forgeCost: 0, // oficina: cartas queimadas da mão para melhorar outra (0: só paga a porta)
     altarRingFrom: 6, // altar: carta de A a 5 vira um item; 6 a 10 vira um anel; J, Q e K viram anel e item
     altarBothFrom: 11,
     reinforceEnemyBase: 0.1, // chance de um inimigo deixar o pergaminho: este valor mais perPoint × soma das cartas dele
