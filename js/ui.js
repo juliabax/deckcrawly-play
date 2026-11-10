@@ -372,6 +372,7 @@
         });
       }
       this.bindMenu();
+      this.initDrag();
       this.el.hand.addEventListener('mousemove', (e) => this.tiltCard(e));
       this.el.hand.addEventListener('mouseout', (e) => {
         const card = e.target.closest('.card');
@@ -448,6 +449,150 @@
       }
       const n = Number(e.key);
       if (n >= 1 && n <= 5 && this.game.hand[n - 1]) this.toggleCard(this.game.hand[n - 1].id);
+    }
+
+    // ---------- arrastar cartas ----------
+    //
+    // Arrastar a carta da mão para um slot do inventário guarda; arrastar a guardada para a mão (ou para cima de uma
+    // carta, que troca de lugar com ela) devolve; arrastar uma carta para outra posição reorganiza a mão ou o inventário.
+    // Tudo com eventos de ponteiro, então vale igual para mouse e dedo. Um toque ou clique sem arrastar segue como antes.
+    initDrag() {
+      const THRESHOLD = 8;
+      let cand = null;
+      const cardOf = (c) => this.game.hand.find((x) => x.id === c.id) || this.game.stash.find((x) => x.id === c.id);
+      const targetAt = (x, y) => {
+        const el = document.elementFromPoint(x, y);
+        if (!el) return null;
+        const slot = el.closest('#stash .stash-slot');
+        if (slot) return { kind: 'slot', el: slot };
+        const card = el.closest('#hand .card');
+        if (card) return { kind: 'handcard', el: card };
+        if (el.closest('#hand')) return { kind: 'hand', el: this.el.hand };
+        return null;
+      };
+      const clearMarks = () => {
+        for (const n of document.querySelectorAll('.drop-target')) n.classList.remove('drop-target');
+      };
+      const end = () => {
+        if (cand && cand.ghost) cand.ghost.remove();
+        if (cand && cand.src) cand.src.classList.remove('drag-src');
+        document.documentElement.classList.remove('dragging-card');
+        clearMarks();
+        cand = null;
+      };
+      document.addEventListener('pointerdown', (e) => {
+        if ((e.pointerType === 'mouse' && e.button !== 0) || this.busy || !this.game.canStore()) return;
+        const slot = e.target.closest('#stash .stash-slot.filled');
+        const card = slot ? null : e.target.closest('#hand .card');
+        const src = slot || card;
+        if (!src || !src.dataset.id) return;
+        cand = { src, id: src.dataset.id, from: slot ? 'stash' : 'hand', x: e.clientX, y: e.clientY, pointerId: e.pointerId, started: false, ghost: null };
+      });
+      document.addEventListener('pointermove', (e) => {
+        if (!cand || e.pointerId !== cand.pointerId) return;
+        if (!cand.started) {
+          if (Math.hypot(e.clientX - cand.x, e.clientY - cand.y) < THRESHOLD) return;
+          const card = cardOf(cand);
+          if (!card) return end();
+          cand.started = true;
+          const ghost = htmlToEl(cardHTML(card, { extra: 'static' }));
+          ghost.classList.add('drag-ghost');
+          document.body.appendChild(ghost);
+          cand.ghost = ghost;
+          cand.src.classList.add('drag-src');
+          document.documentElement.classList.add('dragging-card');
+          if (this.hideTilt) this.hideTilt();
+        }
+        e.preventDefault();
+        const g = cand.ghost;
+        g.style.left = `${e.clientX}px`;
+        g.style.top = `${e.clientY}px`;
+        clearMarks();
+        const t = targetAt(e.clientX, e.clientY);
+        if (t && t.el !== cand.src) t.el.classList.add('drop-target');
+      }, { passive: false });
+      const finish = (e) => {
+        if (!cand || e.pointerId !== cand.pointerId) return;
+        const c = cand;
+        const target = c.started && e.type === 'pointerup' ? targetAt(e.clientX, e.clientY) : null;
+        const rect = c.src.getBoundingClientRect();
+        end();
+        if (!c.started) return;
+        // O toque/clique que vem logo depois de soltar não pode virar "escolher a carta".
+        this.justDragged = true;
+        setTimeout(() => (this.justDragged = false), 60);
+        if (target) this.dropCard(c, target, rect);
+      };
+      document.addEventListener('pointerup', finish);
+      document.addEventListener('pointercancel', finish);
+      document.addEventListener('click', (e) => {
+        if (!this.justDragged) return;
+        e.stopPropagation();
+        e.preventDefault();
+        this.justDragged = false;
+      }, true);
+    }
+
+    // Solta a carta `c` (de onde veio e o id) em cima do alvo.
+    dropCard(c, target, rect) {
+      const g = this.game;
+      const hand = g.hand;
+      const idxOfCard = (el) => hand.findIndex((x) => x.id === el.dataset.id);
+      if ((c.from === 'stash' || target.kind === 'slot') && g.pending && g.pending.type === 'refill') return this.toast('Pegue as cartas primeiro.');
+      if (c.from === 'hand') {
+        if (target.kind === 'handcard') {
+          const res = g.moveHandCard(c.id, idxOfCard(target.el));
+          if (!res.ok) return this.reject(res.error);
+          if (res.moved) this.sound('draw');
+          return this.renderAll();
+        }
+        if (target.kind === 'hand') {
+          g.moveHandCard(c.id, hand.length - 1);
+          return this.renderAll();
+        }
+        const slot = target.el;
+        if (slot.classList.contains('locked')) return this.toast('Slot bloqueado: derrote inimigos ou abra baús para achar um Pergaminho de Inventário.');
+        if (slot.dataset.id) {
+          const res = g.swapStash(c.id, slot.dataset.id);
+          if (!res.ok) return this.reject(res.error);
+        } else {
+          const res = g.stashCard(c.id);
+          if (!res.ok) return this.reject(res.error);
+          this.track('stash');
+          this.fxExit = { rect: slot.getBoundingClientRect() };
+        }
+        this.sel = this.sel.filter((id) => id !== c.id);
+        this.discard.delete(c.id);
+        this.sound('stash');
+        return this.renderAll();
+      }
+      // Veio do inventário.
+      if (target.kind === 'slot') {
+        const slot = target.el;
+        if (slot.classList.contains('locked')) return;
+        const to = slot.dataset.id ? g.stash.findIndex((x) => x.id === slot.dataset.id) : g.stash.length - 1;
+        const res = g.moveStash(c.id, to);
+        if (!res.ok) return this.reject(res.error);
+        if (res.moved) this.sound('draw');
+        return this.renderAll();
+      }
+      const full = hand.length >= g.handLimit();
+      if (target.kind === 'handcard') {
+        const at = idxOfCard(target.el);
+        const res = full ? g.swapStash(target.el.dataset.id, c.id) : g.unstashCard(c.id);
+        if (!res.ok) return this.reject(res.error);
+        if (!full) g.moveHandCard(c.id, at);
+        this.sel = this.sel.filter((id) => id !== (full ? target.el.dataset.id : null));
+        this.fxEnter = rect;
+        this.sound('draw');
+        return this.renderAll();
+      }
+      if (full) return this.toast('Mão cheia: solte em cima de uma carta da mão para trocar de lugar com ela.');
+      const res = g.unstashCard(c.id);
+      if (!res.ok) return this.reject(res.error);
+      this.fxEnter = rect;
+      this.sound('draw');
+      this.renderAll();
     }
 
     // Tela de entrada (logo sobre fundo azul): só na primeira vez, por 3 segundos; um toque fecha antes.

@@ -832,6 +832,38 @@
       return { ok: true };
     }
 
+    // Organizar as cartas (arrastar na tela): a ordem da mão e a do inventário são só de quem joga, não mudam nenhuma regra.
+    moveHandCard(cardId, toIndex) {
+      const from = this.hand.findIndex((c) => c.id === cardId);
+      if (from < 0) return fail('Essa carta não está na mão.');
+      const to = Math.max(0, Math.min(this.hand.length - 1, toIndex));
+      if (to === from) return { ok: true, moved: false };
+      const [card] = this.hand.splice(from, 1);
+      this.hand.splice(to, 0, card);
+      return { ok: true, moved: true };
+    }
+
+    moveStash(cardId, toIndex) {
+      const from = this.stash.findIndex((c) => c.id === cardId);
+      if (from < 0) return fail('Essa carta não está guardada.');
+      const to = Math.max(0, Math.min(this.stash.length - 1, toIndex));
+      if (to === from) return { ok: true, moved: false };
+      const [card] = this.stash.splice(from, 1);
+      this.stash.splice(to, 0, card);
+      return { ok: true, moved: true };
+    }
+
+    // Troca de lugar uma carta da mão com uma guardada: cada uma fica na posição da outra.
+    swapStash(handId, stashId) {
+      if (!this.canStore()) return fail('Não dá para trocar cartas agora.');
+      const h = this.hand.findIndex((c) => c.id === handId);
+      const s = this.stash.findIndex((c) => c.id === stashId);
+      if (h < 0) return fail('Essa carta não está na mão.');
+      if (s < 0) return fail('Essa carta não está guardada.');
+      [this.hand[h], this.stash[s]] = [this.stash[s], this.hand[h]];
+      return { ok: true, out: this.stash[s], in: this.hand[h] };
+    }
+
     afterAction() {
       this.pruneJokers();
       this.startReinforce();

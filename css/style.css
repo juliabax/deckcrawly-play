@@ -3486,3 +3486,44 @@ html.show-splash .splash {
     opacity: 0;
   }
 }
+
+/* ---------- arrastar cartas ---------- */
+
+#hand .card,
+#stash .stash-slot.filled {
+  touch-action: none;
+  cursor: grab;
+}
+
+.dragging-card,
+.dragging-card * {
+  cursor: grabbing !important;
+}
+
+.drag-src {
+  opacity: 0.3;
+}
+
+.drag-ghost {
+  position: fixed;
+  z-index: 10000;
+  --cw: var(--hand-cw);
+  margin: 0;
+  translate: -50% -55%;
+  rotate: 4deg;
+  scale: 1.06;
+  opacity: 0.96;
+  pointer-events: none;
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.6);
+  transition: none !important;
+}
+
+.drop-target {
+  outline: 3px dashed var(--accent);
+  outline-offset: 3px;
+  border-radius: 10px;
+}
+
+.stash-slot.drop-target {
+  background: rgba(231, 184, 74, 0.22);
+}
