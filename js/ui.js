@@ -2529,20 +2529,22 @@
           .join(', ')}): casa com os dois valores.</p>`;
       }
 
-      let jokers = '';
+      return { html, sum, sums, cards, exact };
+    }
+
+    // O poder do ♣ (coringa): vale o próprio número ou copia outra carta da mão. As escolhas ficam na caixa do Poder.
+    jokerHTML(cards) {
+      const g = this.game;
+      let html = '';
       for (const joker of cards.filter((c) => c.suit === 'C')) {
         const others = g.hand.filter((c) => c.id !== joker.id);
         if (!others.length) continue;
         const current = g.jokerTarget(joker);
-        jokers += `<div class="row"><span>♣ vale:</span><button class="btn small ${current ? '' : 'on'}" data-joker="${joker.id}" data-target="">${joker.rank} (própria)</button><span>ou copia</span>${others
-          .map(
-            (o) =>
-              `<button class="btn small ${current && current.id === o.id ? 'on' : ''}" data-joker="${joker.id}" data-target="${o.id}">${label(o)}</button>`,
-          )
-          .join('')}</div>`;
+        html += `<div class="joker-choice"><span>${label(joker)} vale:</span><div class="joker-btns"><button class="btn small ${current ? '' : 'on'}" data-joker="${joker.id}" data-target="">${joker.rank} (própria)</button></div><span>ou copia:</span><div class="joker-btns">${others
+          .map((o) => `<button class="btn small ${current && current.id === o.id ? 'on' : ''}" data-joker="${joker.id}" data-target="${o.id}">${label(o)}</button>`)
+          .join('')}</div></div>`;
       }
-      html += jokers;
-      return { html, sum, sums, cards, exact, jokers };
+      return html;
     }
 
     // Botão do poder (só ♥ compra cartas): fica ao lado da mão (também vale em combate).
@@ -2562,8 +2564,10 @@
         const what = full ? 'Mana cheia' : `Ganhar ${gain} de mana (${g.mana} → ${g.mana + gain})`;
         body = `<button class="btn power-btn gold" data-act="power" ${full ? 'disabled' : ''} title="${what}">
           <b>${sym(c.suit)}</b><span>Virar mana</span><small>${what}</small></button>`;
+      } else if (cards.some((x) => x.suit === 'C') && this.jokerHTML(cards)) {
+        body = `<div class="power-joker">${this.jokerHTML(cards)}</div>`;
       } else {
-        body = '<div class="power-empty">Escolha uma carta ♥ para comprar ou ♦ para ganhar mana</div>';
+        body = '<div class="power-empty">Escolha uma carta ♥ para comprar, ♦ para ganhar mana ou ♣ para copiar outra</div>';
       }
       return `<div class="power-label">Poder</div>${body}`;
     }
@@ -3704,7 +3708,6 @@
       part('summine').innerHTML = p.sumMine;
       part('summine').className = `cs-sum mine${p.picked ? ' on' : ''}${p.exact ? ' exact' : ''}`;
       part('status').innerHTML = p.status;
-      part('jokers').innerHTML = p.jokers;
       // O golpe: o inimigo se encolhe (e treme) uma vez, e depois volta a respirar.
       if (this.foeHit) {
         this.foeHit = false;
@@ -3734,7 +3737,6 @@
           <div class="cs-cards enemy-board" data-part="cards"></div>
           <div class="cs-sum mine" data-part="summine"></div>
           <p class="cs-status" data-part="status"></p>
-          <div class="cs-jokers" data-part="jokers"></div>
         </div>
         <div class="cs-side cs-right" data-part="actions"></div>`;
     }
@@ -3742,7 +3744,7 @@
     // Tudo o que muda a cada toque na cena: cartas do inimigo, as duas somas, o texto de ajuda e os botões.
     combatParts(enemy) {
       const g = this.game;
-      const { sum, sums, cards, exact, jokers } = this.selectionHTML(true);
+      const { sum, sums, cards, exact } = this.selectionHTML(true);
       const flipped = this.revealIds;
       this.revealIds = [];
       // Só dá para marcar o que continua aberto.
@@ -3804,7 +3806,6 @@
         sumFoe: `<small>Inimigo</small><b>${marked.length ? markedCost : '–'}</b>`,
         sumMine: `<small>Você</small><b>${cards.length ? sum : '–'}</b>${cards.length && sums.length > 1 ? `<em>ou ${sums.slice(0, -1).join(', ')}</em>` : ''}${exact ? '<i>★</i>' : ''}`,
         status,
-        jokers,
         ability: this.abilityHTML(enemy),
         adjust: adj ? `<div class="cs-box"><h4>Ajustar a carta escolhida</h4><div class="cs-adj">${adj}</div></div>` : '',
         actions: `<button class="btn primary cs-btn" data-ov="attack-go" ${exact ? '' : 'disabled'}><b>Derrubar</b><small>${attack}</small></button>
