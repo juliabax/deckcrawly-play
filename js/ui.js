@@ -44,6 +44,20 @@
   // Comida do experimento Baralho Finito: Maçã (3 cartas novas) e Bife (5), desenhadas no mesmo estilo dos outros ícones.
   const APPLE_SVG = `<svg class="food-ico apple" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7.5c-2.2-1.7-6.2-1.3-7.3 2.3C3.5 13.6 6 20.4 9 20.8c1 .1 1.9-.5 3-.5s2 .6 3 .5c3-.4 5.5-7.200 4.300-11C18.200 6.200 14.200 5.800 12 7.500z" fill="#d6403a" stroke="#5e1a17" stroke-width="1.3" stroke-linejoin="round" /><path d="M12 7.500c0-2 .8-3.400 2.300-4.300" fill="none" stroke="#5b3a1e" stroke-width="1.5" stroke-linecap="round" /><path d="M13.200 4.800c1.500-1.300 3.500-1 4.100-.5-.4 1.600-2.300 2.400-4.100.5z" fill="#62b04f" stroke="#2f6b2a" stroke-width="1" stroke-linejoin="round" /><path d="M7.800 10.500c.3-1 1.100-1.700 2-1.800" fill="none" stroke="#f7a8a0" stroke-width="1.300" stroke-linecap="round" /></svg>`;
   const STEAK_SVG = `<svg class="food-ico steak" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.800 11.500C3.200 7.700 6.200 4.700 10.200 4.200c3.800-.5 7.800 1 9.400 4.300 1.400 3-.1 6.700-2.900 8.500-3.100 2-8.200 1.800-10.700-1.300-.9-1-1.600-2.300-2.200-4.200z" fill="#f4cfc4" stroke="#612620" stroke-width="1.300" stroke-linejoin="round" /><path d="M6.200 11.200c-.3-2.800 1.800-4.900 4.800-5.200 2.800-.3 5.700.8 6.900 3.200.9 2.200 0 4.800-2 6-2.400 1.400-6.200 1.200-7.900-.9-.9-.9-1.600-2-1.800-3.100z" fill="#b53c34" /><path d="M8.700 9.300l5.200 4.400M10.800 7.700l5.200 4.400" fill="none" stroke="#7c201c" stroke-width="1.200" stroke-linecap="round" /><circle cx="8.800" cy="14.200" r="1.500" fill="#f3e6cf" stroke="#86704a" stroke-width=".8" /></svg>`;
+  // Grama (enfeite): pixels quadrados em 16x16, em três arranjos para as manchas não ficarem iguais. Em pé, as folhas sobem;
+  // amassada, fica rente ao chão, mais escura.
+  const GRASS_TUFTS = [
+    [[3, 13, 1, 5], [5, 13, 1, 8], [7, 13, 1, 6], [9, 13, 1, 9], [11, 13, 1, 6], [13, 13, 1, 4], [2, 14, 12, 1]],
+    [[2, 13, 1, 6], [4, 13, 1, 9], [6, 13, 1, 5], [8, 13, 1, 7], [10, 13, 1, 10], [12, 13, 1, 5], [14, 13, 1, 4], [1, 14, 14, 1]],
+    [[4, 13, 1, 7], [6, 13, 1, 10], [8, 13, 1, 6], [10, 13, 1, 8], [12, 13, 1, 5], [3, 14, 11, 1]],
+  ];
+  const grassSVG = (flat, seed) => {
+    const blades = GRASS_TUFTS[seed % 3];
+    const body = flat
+      ? '<rect x="2" y="12" width="12" height="1" fill="#2c6a34"/><rect x="3" y="13" width="10" height="1" fill="#245a2c"/><rect x="5" y="11" width="2" height="1" fill="#3a8140"/><rect x="9" y="11" width="3" height="1" fill="#3a8140"/>'
+      : blades.map(([x, y, w, h], i) => (h === 1 ? `<rect x="${x}" y="${y}" width="${w}" height="1" fill="#2c6a34"/>` : `<rect x="${x}" y="${y - h + 1}" width="${w}" height="${h}" fill="${i % 2 ? '#4aa04c' : '#3a8a3f'}"/><rect x="${x}" y="${y - h + 1}" width="${w}" height="2" fill="#86d36a"/>`)).join('');
+    return `<svg class="grass${flat ? ' flat' : ''}" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">${body}</svg>`;
+  };
   const FOOD_SVG = { normal: APPLE_SVG, gold: STEAK_SVG };
 
   // Anel: aro dourado com uma pedra da cor do anel; os anéis de naipe levam o símbolo do naipe na pedra.
@@ -1534,7 +1548,7 @@
       this.clearPath();
       this.renderSide();
       this.el.map.style.setProperty('--step', `${stepMs + 15}ms`);
-      const total = { steps: 0, combat: false, trap: null, descended: false, woke: [], picked: [] };
+      const total = { steps: 0, combat: false, trap: null, descended: false, woke: [], picked: [], grass: [] };
       let prev = path[0];
       let last = null;
       for (const cell of path.slice(1)) {
@@ -1549,6 +1563,7 @@
         total.descended = total.descended || res.descended;
         total.woke.push(...res.woke);
         total.picked.push(...res.picked);
+        if (res.grass) total.grass.push(res.grass);
         if (res.secretFound !== undefined) total.secret = true;
         if (res.moved) {
           total.steps++;
@@ -1606,6 +1621,27 @@
           });
           return;
         }
+      }
+      for (const found of total.grass) {
+        // Achado na grama: uma carta nova para o deck (a gotinha) ou um pergaminho.
+        const t = this.token ? centerOf(this.token.getBoundingClientRect()) : null;
+        if (found.kind === 'card') {
+          this.sound('ding', 0.15);
+          this.toastOk(`Na grama tinha uma carta: ${label(found.card)} entra no seu deck.`);
+          if (this.fxOn && t) {
+            this.burst(t.x, t.y, { count: 14, color: '#7ed36b', spread: 56 });
+            this.floatText('+1 carta no deck', t.x, t.y - 30, 'gold');
+          }
+        } else {
+          this.sound('scroll', 0.3);
+          if (found.slot) this.newSlot = g.slotsOpen - 1;
+          this.toastOk(found.slot ? 'Na grama tinha um Pergaminho de Inventário: ganhou um slot!' : `Na grama tinha um pergaminho: ${found.item ? DC.ROGUE.itemName(g, found.item.item) : 'a bolsa está cheia'}.`);
+          if (this.fxOn && t) {
+            this.burst(t.x, t.y, { count: 16, color: '#f6e7b4', spread: 64 });
+            this.floatText('Pergaminho!', t.x, t.y - 30, 'gold');
+          }
+        }
+        this.track(found.kind === 'card' ? 'grass-card' : 'grass-scroll');
       }
       if (total.secret) {
         this.sound('creak', 0.3);
@@ -2662,6 +2698,7 @@
       map.style.gridTemplateColumns = `repeat(${f.w}, ${this.tile}px)`;
       map.style.gridTemplateRows = `repeat(${f.h}, ${this.tile}px)`;
 
+      const grassAt = new Map((f.grass || []).map((t) => [t.y * f.w + t.x, t]));
       let html = '';
       for (let y = 0; y < f.h; y++) {
         for (let x = 0; x < f.w; x++) {
@@ -2721,6 +2758,12 @@
                   cls += ` t-trap ${trap.kind}`;
                   inner += `<span class="trap-mark">${trap.kind === 'dart' ? '✖' : '⤒'}</span>`;
                   title = trap.kind === 'dart' ? 'Armadilha de dardo (já disparada)' : 'Alçapão para o andar de cima (já disparado)';
+                }
+                const tuft = grassAt.get(key);
+                if (tuft && !enemyOn) {
+                  cls += tuft.trampled ? ' t-grass flat' : ' t-grass';
+                  inner += grassSVG(tuft.trampled, x * 7 + y * 3);
+                  if (!tuft.trampled) title = title || 'Grama: pise para ver se esconde algo';
                 }
                 const pickup = (f.pickups || []).find((p) => !p.taken && p.x === x && p.y === y);
                 if (pickup) {
@@ -3934,6 +3977,8 @@
         </ul>
         <h4>Anéis e mana</h4>
         <p>Os anéis ficam no dedo (<b>2 espaços</b>). Vêm de <b>baús</b> (metade deles guarda um, e o do <b>andar 1</b> sempre guarda) e de <b>inimigos</b> (os mais difíceis deixam mais). Ao achar um, você escolhe em que espaço vesti-lo, trocando o que estiver lá, ou deixa para trás. <b>Passivos</b> (valem sozinhos): <b>Mão</b> +1 na mão máxima, <b>Deck</b> +1 carta ao abrir sala nova, <b>Comida</b> porta aberta com soma exata põe 1 carta nova no deck, <b>Mago</b> +4 de mana máxima. <b>Ativos</b> (gastam ${this.game.config.ringUseMana} de mana por uso: escolha 1 carta da mão e toque no anel): <b>Ladrão</b> a carta sobe ou desce 1 ao pagar portas e baús, <b>Precisão</b> a carta sobe ou desce 1 em combate (só aquela carta, uma vez; com ♠ o ajuste entra depois do dobro), e os <b>anéis de naipe</b> (♠ ♥ ♦ ♣) viram a carta daquele naipe até ser usada.</p>
+        <h4>Grama</h4>
+        <p>Manchas de <b>grama</b> crescem nas salas comuns (só de enfeite: não tapam a visão). Ao <b>pisar</b> numa grama pela primeira vez ela é amassada e pode esconder algo, com chance pequena: <b>${Math.round(this.game.config.grassCardChance * 100)}%</b> uma <b>carta nova</b> que entra no seu deck (é uma "gotinha" de vida) e <b>${Math.round(this.game.config.grassScrollChance * 100)}%</b> um <b>pergaminho</b>. Cada grama só sorteia uma vez.</p>
         <h4>Névoa</h4>
         <p>Você só enxerga <b>perto de você</b>: um círculo de ${this.game.config.viewRadius} casas, com <b>linha de visão</b> (parede e porta tapam, até aberta). O que você já viu fica no mapa, <b>escurecido</b>, mas <b>inimigos só aparecem enquanto estão à vista</b>. Para descobrir onde estão as portas, os baús e a escada de saída é preciso <b>andar pelas salas</b>; só dá para ir até casas que você já viu. Abrir uma porta <b>não mostra</b> a sala de trás: ela só aparece quando você <b>pisa no vão da porta</b>. O Pergaminho de Mapa mostra o andar todo. O botão "Névoa" no menu (ou a tecla F) liga e desliga, útil para testar.</p>
         <h4>Zoom</h4>

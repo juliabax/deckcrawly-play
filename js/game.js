@@ -87,6 +87,9 @@
     wakeChanceSmall: 0.33, // a de um rato (dorme mais fundo)
     hungerEvery: 33, // FOME: a cada tantos turnos a carta do topo do deck queima (sem deck, a menor carta da mão). 0 desliga
     hungerWarn: 5, // avisa quando faltam tantos turnos
+    grassRoomChance: 0.6, // GRAMA (enfeite, ideia da Julia do Shattered): chance de uma sala comum ter uma mancha de grama
+    grassCardChance: 0.08, // ao pisar numa grama pela 1ª vez: uma carta nova entra no deck (a "gotinha": ela já é vida)
+    grassScrollChance: 0.03, // ... ou um pergaminho (mapa, Precisão, Ladrão ou Inventário)
     viewRadius: 4, // NÉVOA: até onde você enxerga (em casas, com linha de visão); o resto do andar só aparece andando (0 desliga: salas inteiras)
     sightRange: 9, // até onde um inimigo acordado enxerga você (em casas, em linha reta, sem parede no meio)
     loseTrack: 3, // turnos sem te ver até ele desistir e voltar a dormir onde está
@@ -162,10 +165,11 @@
       this.chestRng = DC.makeRng(`${this.seed}:chests`); // quais baús são destrancados (grátis)
       this.ringCount = 0;
       this.specialRng = DC.makeRng(`${this.seed}:specials`); // salas especiais e secretas: onde, quais, o que dão
+      this.grassRng = DC.makeRng(`${this.seed}:grass`); // onde a grama cresce e o que tem dentro (à parte: a masmorra não muda)
       this.secretRng = DC.makeRng(`${this.seed}:secrets`); // a cada turno ao lado de uma porta secreta: achou?
       this.wellKnown = new Set(); // cores de poço que você já bebeu (o efeito dessa cor passa a ser conhecido)
       this.wellEffects = {}; // cor do poço -> efeito (sorteado por seed)
-      this.specials = { well: 0, altar: 0, library: 0, crypt: 0, table: 0, forge: 0, secretFound: 0, secretRooms: 0, secretChests: 0 }; // para o relatório
+      this.specials = { well: 0, altar: 0, library: 0, crypt: 0, table: 0, forge: 0, secretFound: 0, secretRooms: 0, secretChests: 0, grass: 0, grassCards: 0, grassScrolls: 0 }; // para o relatório
       // Para onde as cartas vão (só para o relatório): andar, portas e baús, combate, fuga, poder do ♥, armadilhas.
       this.spent = { open: 0, attack: 0, flee: 0, power: 0, trap: 0, spadeAttack: 0, spadeOther: 0, damage: 0, special: 0 };
       this.rings = Array(this.config.ringSlots).fill(null); // anéis no dedo: { id, ring }
@@ -268,6 +272,7 @@
       this.planRings();
       this.planRats();
       this.planSpecials();
+      this.planGrass();
       this.planBoss();
       // Todo inimigo começa dormindo e parado (acorda quando você chega perto, como no Rogue).
       for (const floor of this.floors) {
@@ -277,6 +282,91 @@
           enemy.lost = 0;
         }
       }
+    }
+
+    // ---------- grama (ideia da Julia, do Shattered Pixel Dungeon) ----------
+    //
+    // Manchas de grama nas salas comuns, só de enfeite (não tapam a visão). Pisar numa grama pela primeira vez a amassa e
+    // pode esconder algo: uma carta nova para o deck (a "gotinha": já é vida) ou, mais raro, um pergaminho. Sorteio à
+    // parte (`grassRng`) e depois de tudo, então a masmorra de cada seed continua igual. Fora do treino e do Chefão.
+    planGrass() {
+      const cfg = this.config;
+      const rng = this.grassRng;
+      for (const floor of this.floors) {
+        floor.grass = [];
+        const blocked = new Set();
+        const mark = (x, y) => blocked.add(`${x},${y}`);
+        for (const e of floor.enemies || []) mark(e.x, e.y);
+        for (const t of floor.traps || []) mark(t.x, t.y);
+        for (const p of floor.pickups || []) mark(p.x, p.y);
+        // Nada de grama na casa em frente a uma porta (fica livre para andar e abrir).
+        for (const d of floor.doors) for (const [dx, dy] of DC.DIRS.slice(0, 4)) mark(d.x + dx, d.y + dy);
+        for (const room of floor.rooms) {
+          if (room.kind !== 'normal' && room.kind !== 'start') continue;
+          if (rng.next() >= cfg.grassRoomChance) continue;
+          const cells = [];
+          for (let y = room.y; y < room.y + room.h; y++) {
+            for (let x = room.x; x < room.x + room.w; x++) {
+              if (floor.grid[y][x].type === 'floor' && floor.grid[y][x].room === room.id && !blocked.has(`${x},${y}`)) cells.push({ x, y });
+            }
+          }
+          if (!cells.length) continue;
+          // Uma mancha: de 25% a 55% das casas, crescendo de uma casa sorteada para as vizinhas.
+          const want = Math.max(1, Math.round(cells.length * (0.25 + rng.next() * 0.3)));
+          const free = new Map(cells.map((c) => [`${c.x},${c.y}`, c]));
+          const patch = [];
+          let at = rng.pick(cells);
+          while (patch.length < want && at) {
+            patch.push(at);
+            free.delete(`${at.x},${at.y}`);
+            const near = patch.flatMap((p) => DC.DIRS.slice(0, 4).map(([dx, dy]) => free.get(`${p.x + dx},${p.y + dy}`)).filter(Boolean));
+            at = near.length ? rng.pick(near) : [...free.values()][0];
+          }
+          for (const c of patch) floor.grass.push({ x: c.x, y: c.y, trampled: false });
+        }
+      }
+    }
+
+    // Pisou numa casa: se tem grama ainda em pé, ela é amassada e sorteia o que escondia (uma vez só por casa).
+    trampleGrass(x, y) {
+      const tuft = (this.floor.grass || []).find((g) => g.x === x && g.y === y && !g.trampled);
+      if (!tuft) return null;
+      tuft.trampled = true;
+      this.specials.grass++;
+      const cfg = this.config;
+      const roll = this.grassRng.next();
+      if (roll < cfg.grassCardChance) {
+        const suit = this.grassRng.pick(DC.SUITS);
+        const rank = this.grassRng.int(1, 13);
+        const card = { id: `n${++this.cardCount}${suit}${rank}`, suit, rank, fresh: true };
+        this.playerDeck.splice(this.grassRng.int(0, this.playerDeck.length), 0, card);
+        this.reinforced++;
+        this.specials.grassCards++;
+        this.log(`Na grama tinha uma carta: ${DC.rankLabel(rank)}${DC.SUIT_SYMBOL[suit]} entra no seu deck.`, 'good');
+        return { kind: 'card', card };
+      }
+      if (roll < cfg.grassCardChance + cfg.grassScrollChance) {
+        // Pergaminhos sorteados à parte: mapa, Precisão, Ladrão e, se ainda houver slot, o de Inventário.
+        const opts = Object.keys(DC.ROGUE.ITEMS).filter((k) => DC.ROGUE.ITEMS[k].kind === 'scroll').map((k) => ({ key: k, weight: DC.ROGUE.ITEMS[k].weight }));
+        if (this.slotsOpen < cfg.maxSlots) opts.push({ key: 'slot', weight: 2 });
+        let pick = this.grassRng.next() * opts.reduce((n, o) => n + o.weight, 0);
+        let key = opts[opts.length - 1].key;
+        for (const o of opts) {
+          pick -= o.weight;
+          if (pick < 0) {
+            key = o.key;
+            break;
+          }
+        }
+        this.specials.grassScrolls++;
+        this.log('Na grama tinha um pergaminho!', 'good');
+        if (key === 'slot') {
+          this.grantScroll();
+          return { kind: 'scroll', slot: true };
+        }
+        return { kind: 'scroll', item: this.addItem(key) };
+      }
+      return { kind: 'nothing' };
     }
 
     // Acrescenta os ratos (inimigos pequenos de 1 carta) depois de tudo, com sorteio à parte: a masmorra de cada
@@ -947,6 +1037,8 @@
       this.player = { x, y };
       const result = { ok: true, moved: true, from, to: { x, y }, floorBefore, picked: this.collectPickups([from, { x, y }]), trap: null, descended: false, combat: false, woke: [], moved_enemies: [] };
       this.steps++;
+      const grass = this.trampleGrass(x, y);
+      if (grass && grass.kind !== 'nothing') result.grass = grass;
 
       const trap = (f.traps || []).find((t) => !t.sprung && t.x === x && t.y === y);
       if (trap) result.trap = this.springTrap(trap);
@@ -1079,7 +1171,7 @@
     // A caminhada automática deve parar? Quando algo muda: combate, armadilha, comida achada, descida, um inimigo
     // acordando ou perseguindo você, ou uma janela aberta.
     stopWalking(result) {
-      return Boolean(result.combat || result.trap || result.descended || result.secretFound || result.sawEnemy || (result.picked && result.picked.length) || (result.woke && result.woke.length) || this.pending || this.status !== 'playing' || this.chasers().length);
+      return Boolean(result.combat || result.trap || result.descended || result.secretFound || result.sawEnemy || result.grass || (result.picked && result.picked.length) || (result.woke && result.woke.length) || this.pending || this.status !== 'playing' || this.chasers().length);
     }
 
     // Anda até x,y passo a passo, parando quando algo muda (para os testes e atalhos; a tela anima cada passo).
