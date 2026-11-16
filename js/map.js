@@ -699,13 +699,15 @@
   }
 
   // Campo de visão do herói (névoa por casa, como no Shattered Pixel Dungeon): as casas que ele enxerga de (ox,oy), até
-  // `radius` casas (um círculo). A linha até a casa não pode cruzar parede, porta fechada nem o vazio; baús e objetos
+  // `radius` casas (um círculo). A linha até a casa não pode cruzar parede, porta (aberta ou fechada) nem o vazio; baús e objetos
   // das salas são baixos e não atrapalham. A parede ou a porta onde a linha termina também aparece (é o que você
   // "bate" com o olhar), e as paredes e portas coladas a uma casa vista também, para as salas não ficarem esburacadas.
   // Devolve o conjunto de chaves y * largura + x.
   function fieldOfView(floor, ox, oy, radius) {
     const key = (x, y) => y * floor.w + x;
-    const clear = (c) => Boolean(c) && (['floor', 'start', 'exit', 'chest', 'fixture'].includes(c.type) || (c.type === 'door' && floor.doors[c.ref].open));
+    // Porta nunca deixa ver através, nem aberta: a sala de trás só aparece quando você pisa no vão da porta (aí a origem
+    // é a própria porta). Baús e objetos de sala são baixos e não tapam.
+    const clear = (c) => Boolean(c) && ['floor', 'start', 'exit', 'chest', 'fixture'].includes(c.type);
     const seen = new Set([key(ox, oy)]);
     const limit = (radius + 0.5) * (radius + 0.5);
     for (let ty = oy - radius; ty <= oy + radius; ty++) {
