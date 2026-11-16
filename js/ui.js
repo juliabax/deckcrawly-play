@@ -286,6 +286,7 @@
 
     newGame(seed, tutorial = false) {
       this.game = new DC.Game({ seed: seed === null || seed === undefined ? undefined : seed, tutorial });
+      this.game.fogOn = this.fog;
       window.game = this.game;
       try {
         history.replaceState(null, '', tutorial ? location.pathname : `?seed=${encodeURIComponent(this.game.seed)}`);
@@ -668,6 +669,7 @@
 
     toggleFog() {
       this.fog = !this.fog;
+      this.game.fogOn = this.fog; // sem névoa dá para andar até casas que ainda não viu (teste)
       try {
         localStorage.setItem('deckcrawly.fog', this.fog ? '1' : '0');
       } catch (e) {
@@ -2659,6 +2661,8 @@
           const cell = f.grid[y][x];
           const key = y * f.w + x;
           const shown = !this.fog || g.isCellShown(x, y);
+          // Na névoa por casa, o que já foi visto fica escurecido; inimigos só aparecem no campo de visão de agora.
+          const inView = !this.fog || g.isCellVisible(x, y);
           if (shown) shownKeys.add(key);
           const fresh = shown && cell.type !== 'void' && animate && this.shownFloor === f && !this.prevShown.has(key);
           const sweep = fresh && origin && this.fxOn ? Math.min(Math.abs(x - origin.x) + Math.abs(y - origin.y), 30) * 22 : 0;
@@ -2671,7 +2675,7 @@
           let cls = 't-void';
           let inner = '';
           let title = '';
-          const enemyOn = shown ? (f.enemies || []).find((e) => !e.dead && e.x === x && e.y === y) : null;
+          const enemyOn = shown && inView ? (f.enemies || []).find((e) => !e.dead && e.x === x && e.y === y) : null;
           const enemyMarkup = (enemy) => {
             const left = remainingEnemyCards(enemy);
             const facedown = left.filter((c) => isHiddenCard(enemy, c)).length;
@@ -2772,7 +2776,7 @@
             styles.push(DC.art.style(sprite));
           }
           const style = styles.length ? ` style="${styles.join(';')}"` : '';
-          html += `<div class="tile ${cls}${fresh ? ' reveal' : ''}" data-x="${x}" data-y="${y}"${title ? ` title="${title}"` : ''}${style}>${inner}</div>`;
+          html += `<div class="tile ${cls}${fresh ? ' reveal' : ''}${shown && !inView && cell.type !== 'void' ? ' remembered' : ''}" data-x="${x}" data-y="${y}"${title ? ` title="${title}"` : ''}${style}>${inner}</div>`;
         }
       }
       html += '<div class="token" id="token"><i class="ball"></i></div>';
@@ -3264,7 +3268,7 @@
       const targets = g.adjacentTargets();
       const tests = [
         ['scroll', queued === 'scroll'],
-        ['zone', g.floor.enemies.some((e) => !e.dead && g.isCellShown(e.x, e.y))],
+        ['zone', g.floor.enemies.some((e) => !e.dead && g.isCellVisible(e.x, e.y))],
         ['door', targets.length > 0],
         ['lowdeck', g.playerDeck.length <= LOW_DECK],
         ['start', this.stats.moves === 0 && g.floorNo === 1],
@@ -3863,7 +3867,7 @@
           <h2>${won ? 'Treino concluído!' : 'Sem ações possíveis'}</h2>
           <p>${won ? `Agora é a masmorra de verdade: ${DC.CONFIG.floors} andares e, no fim, um <b>Chefão</b>.` : 'Acabaram as cartas do treino. Tente de novo, desta vez com mais calma.'}</p>
           ${won ? `<ul class="tour-next">
-            <li><b>Fome:</b> a cada 30 turnos uma carta queima. Ache <b>comida</b> (Maçã 3, Bife 5) no chão, em baús e com inimigos.</li>
+            <li><b>Fome:</b> a cada ${this.game.config.hungerEvery} turnos uma carta queima. Ache <b>comida</b> (Maçã 3, Bife 5) no chão, em baús e com inimigos.</li>
             <li><b>Soma exata</b> em portas compra cartas; em combate é o que derruba o inimigo.</li>
             <li><b>Baús</b> pagam como portas e guardam comida e anéis. Alguns são de graça.</li>
             <li><b>Salas especiais</b> (poço, altar, biblioteca...) ficam em becos: cada uma tem uma regra. Dá para tentar ou deixar.</li>
@@ -3908,7 +3912,7 @@
         <h4>Cartas</h4>
         <ul>
           <li><b>Andar é de graça</b>, por turnos (como no Rogue): toque numa casa e o personagem vai passo a passo (ou use as setas do teclado). Só anda na vertical e horizontal. <b>Cada passo é um turno</b>, e abrir uma porta ou um baú também passa um turno. Depois do seu turno os inimigos agem.</li>
-          <li><b>Fome</b> (o relógio contra enrolar): a cada <b>30 turnos</b> a carta do topo do deck <b>queima</b> e vai para o cemitério (sem deck, a menor da mão). O contador "Fome em N" fica no topo e pisca quando faltam 5. Comer <b>não zera</b> o relógio: explore com pressa, sem enrolar.</li>
+          <li><b>Fome</b> (o relógio contra enrolar): a cada <b>${this.game.config.hungerEvery} turnos</b> a carta do topo do deck <b>queima</b> e vai para o cemitério (sem deck, a menor da mão). O contador "Fome em N" fica no topo e pisca quando faltam 5. Comer <b>não zera</b> o relógio: explore com pressa, sem enrolar.</li>
           <li><b>Abrir portas e baús:</b> fique ao lado, selecione cartas cuja soma seja pelo menos o custo. <b>Soma exata</b> compra ${this.game.config.exactBonus} carta de graça; se a soma exata for paga com <b>2 ou mais cartas do mesmo naipe</b>, compra ${this.game.config.flushBonus}. Soma maior apenas abre.</li>
           <li><b>Baú:</b> mostra 5 cartas do seu deck, você leva até 2 e o resto volta ao deck. Todo baú guarda um prêmio. O que <b>custa cartas</b> é o grande: um <b>anel</b> (metade das vezes) ou, senão, um <b>Bife</b> garantido. O <b>destrancado</b> (marcado "grátis") abre sem gastar cartas e dá uma <b>Maçã</b> (em um a cada quatro, um anel).
           <li>Toda carta usada vai para o <b>cemitério</b> (o descarte) e <b>nunca volta</b> ao deck. Toque na pilha para ver o que já foi.</li>
@@ -3924,7 +3928,7 @@
         <h4>Anéis e mana</h4>
         <p>Os anéis ficam no dedo (<b>2 espaços</b>). Vêm de <b>baús</b> (metade deles guarda um, e o do <b>andar 1</b> sempre guarda) e de <b>inimigos</b> (os mais difíceis deixam mais). Ao achar um, você escolhe em que espaço vesti-lo, trocando o que estiver lá, ou deixa para trás. <b>Passivos</b> (valem sozinhos): <b>Mão</b> +1 na mão máxima, <b>Deck</b> +1 carta ao abrir sala nova, <b>Comida</b> porta aberta com soma exata põe 1 carta nova no deck, <b>Mago</b> +4 de mana máxima. <b>Ativos</b> (gastam ${this.game.config.ringUseMana} de mana por uso: escolha 1 carta da mão e toque no anel): <b>Ladrão</b> a carta sobe ou desce 1 ao pagar portas e baús, <b>Precisão</b> a carta sobe ou desce 1 em combate (só aquela carta, uma vez; com ♠ o ajuste entra depois do dobro), e os <b>anéis de naipe</b> (♠ ♥ ♦ ♣) viram a carta daquele naipe até ser usada.</p>
         <h4>Névoa</h4>
-        <p>Você só enxerga a sala em que está e as salas cujas portas já abriu. Não dá para saber onde fica a escada de saída: é preciso gastar cartas explorando. O botão "Névoa" no topo (ou a tecla F) liga e desliga, útil para testar.</p>
+        <p>Você só enxerga <b>perto de você</b>: um círculo de ${this.game.config.viewRadius} casas, com <b>linha de visão</b> (parede e porta fechada tapam). O que você já viu fica no mapa, <b>escurecido</b>, mas <b>inimigos só aparecem enquanto estão à vista</b>. Para descobrir onde estão as portas, os baús e a escada de saída é preciso <b>andar pelas salas</b>; só dá para ir até casas que você já viu. Uma porta aberta deixa ver a sala de trás. O Pergaminho de Mapa mostra o andar todo. O botão "Névoa" no menu (ou a tecla F) liga e desliga, útil para testar.</p>
         <h4>Zoom</h4>
         <p>Os botões + e − no canto do mapa (ou as teclas + e −) aproximam e afastam. O zoom tem tamanhos fixos (100% = casas de 40 px, sempre igual), de 60% a 300%. Quando o mapa passa da tela, ele acompanha o seu personagem. Para olhar outras salas, <b>arraste o mapa</b> (em qualquer ponto, inclusive na parte escura). O botão ◎ ao lado do zoom (ou a tecla C) volta para o personagem, e a câmera também volta sozinha quando ele anda.</p>
         <h4>Inimigos</h4>

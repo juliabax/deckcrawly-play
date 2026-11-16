@@ -98,7 +98,7 @@
             trigger: 'any',
             compact: true, // 3 frases: letra menor para não cobrir a Maçã
             focus: ['pickup', 'deck'], // a Maçã no chão e o deck, que é a vida
-            lines: ['Tem uma Maçã no chão: é comida.', 'Passe por cima dela e 3 cartas novas entram no seu deck.', 'Na masmorra de verdade a fome queima 1 carta a cada 30 turnos. Comida é vida!'],
+            lines: ['Tem uma Maçã no chão: é comida.', 'Passe por cima dela e 3 cartas novas entram no seu deck.', 'Na masmorra de verdade a fome queima 1 carta a cada 33 turnos. Comida é vida!'],
           },
         ],
         title: 'Comida',
@@ -106,7 +106,7 @@
           default: `Tem uma <b>Maçã</b> no chão da sala. Toque na casa dela: <b>3 cartas novas</b> entram no seu deck.<br><span class="muted">O <b>Bife</b> dá 5. Comida também vem em baús e com alguns inimigos.</span>`,
         },
         done: {
-          default: `<b>Maçã!</b> Seu deck ganhou cartas novas. No jogo de verdade a <b>fome</b> queima <b>1 carta a cada 30 turnos</b> (o contador "Fome em N" fica lá em cima): comida repõe a sua vida. Aqui no treino a fome está desligada.`,
+          default: `<b>Maçã!</b> Seu deck ganhou cartas novas. No jogo de verdade a <b>fome</b> queima <b>1 carta a cada 33 turnos</b> (o contador "Fome em N" fica lá em cima): comida repõe a sua vida. Aqui no treino a fome está desligada.`,
         },
       },
       {

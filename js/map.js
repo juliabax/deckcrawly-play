@@ -698,6 +698,40 @@
     return true;
   }
 
+  // Campo de visão do herói (névoa por casa, como no Shattered Pixel Dungeon): as casas que ele enxerga de (ox,oy), até
+  // `radius` casas (um círculo). A linha até a casa não pode cruzar parede, porta fechada nem o vazio; baús e objetos
+  // das salas são baixos e não atrapalham. A parede ou a porta onde a linha termina também aparece (é o que você
+  // "bate" com o olhar), e as paredes e portas coladas a uma casa vista também, para as salas não ficarem esburacadas.
+  // Devolve o conjunto de chaves y * largura + x.
+  function fieldOfView(floor, ox, oy, radius) {
+    const key = (x, y) => y * floor.w + x;
+    const clear = (c) => Boolean(c) && (['floor', 'start', 'exit', 'chest', 'fixture'].includes(c.type) || (c.type === 'door' && floor.doors[c.ref].open));
+    const seen = new Set([key(ox, oy)]);
+    const limit = (radius + 0.5) * (radius + 0.5);
+    for (let ty = oy - radius; ty <= oy + radius; ty++) {
+      for (let tx = ox - radius; tx <= ox + radius; tx++) {
+        const dx = tx - ox;
+        const dy = ty - oy;
+        if (dx * dx + dy * dy > limit) continue;
+        const target = cellAt(floor, tx, ty);
+        if (!target || target.type === 'void') continue;
+        const n = Math.max(Math.abs(dx), Math.abs(dy));
+        let open = true;
+        for (let i = 1; i < n && open; i++) open = clear(cellAt(floor, Math.round(ox + (dx * i) / n), Math.round(oy + (dy * i) / n)));
+        if (open) seen.add(key(tx, ty));
+      }
+    }
+    for (const k of [...seen]) {
+      const cell = cellAt(floor, k % floor.w, Math.floor(k / floor.w));
+      if (!clear(cell)) continue;
+      for (const [dx, dy] of [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]]) {
+        const near = cellAt(floor, (k % floor.w) + dx, Math.floor(k / floor.w) + dy);
+        if (near && (near.type === 'wall' || near.type === 'door')) seen.add(key((k % floor.w) + dx, Math.floor(k / floor.w) + dy));
+      }
+    }
+    return seen;
+  }
+
   // Próximo passo de um inimigo acordado rumo a `goal` (onde viu você pela última vez): o caminho mais curto pelas
   // casas por onde ele pode andar, que atravessa portas abertas e vai de sala em sala. Não pisa em outro inimigo nem
   // em `hero`. Devolve a casa do passo, ou null se ele já chegou, não há caminho ou o caminho está tomado.
@@ -761,5 +795,5 @@
     return found;
   }
 
-  Object.assign(DC, { addDeadEnd, adjacentFixtures, generateFloor, bossFloor, tutorialFloor, tutorialFloor2, cellAt, reach, pathTo, adjacentTargets, placeEnemies, placeSmall, placePickup, enemyAt, enemyHere, inWakeZone, chaseStep, canSee, enemyCanEnter, enemyZone, blocksRoom, DIRS });
+  Object.assign(DC, { addDeadEnd, adjacentFixtures, generateFloor, bossFloor, tutorialFloor, tutorialFloor2, cellAt, reach, pathTo, adjacentTargets, placeEnemies, placeSmall, placePickup, enemyAt, enemyHere, inWakeZone, chaseStep, canSee, fieldOfView, enemyCanEnter, enemyZone, blocksRoom, DIRS });
 })(typeof window !== 'undefined' ? window : globalThis);

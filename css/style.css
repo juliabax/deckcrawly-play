@@ -3823,3 +3823,8 @@ html.show-splash .splash {
   background: var(--accent);
   color: #2a1c05;
 }
+
+/* névoa por casa: o que você já viu e não está mais à vista fica escurecido (como no Shattered Pixel Dungeon) */
+.tile.remembered {
+  filter: brightness(0.5) saturate(0.65);
+}

@@ -85,8 +85,9 @@
     // Experimento Turnos (como no Rogue): andar é de graça, cada passo é um turno e os inimigos agem depois dele.
     wakeChance: 0.67, // chance de um inimigo grande acordar quando você termina um turno na zona dele (no Rogue, 2/3)
     wakeChanceSmall: 0.33, // a de um rato (dorme mais fundo)
-    hungerEvery: 30, // FOME: a cada tantos turnos a carta do topo do deck queima (sem deck, a menor carta da mão). 0 desliga
+    hungerEvery: 33, // FOME: a cada tantos turnos a carta do topo do deck queima (sem deck, a menor carta da mão). 0 desliga
     hungerWarn: 5, // avisa quando faltam tantos turnos
+    viewRadius: 4, // NÉVOA: até onde você enxerga (em casas, com linha de visão); o resto do andar só aparece andando (0 desliga: salas inteiras)
     sightRange: 9, // até onde um inimigo acordado enxerga você (em casas, em linha reta, sem parede no meio)
     loseTrack: 3, // turnos sem te ver até ele desistir e voltar a dormir onde está
     fleeStun: 3, // turnos que o inimigo fica parado depois que você foge dele
@@ -191,6 +192,10 @@
       this.floor = null;
       this.player = null;
       this.visited = new Set();
+      this.seenCells = {}; // casas já vistas de cada andar (a névoa por casa): o que você viu fica no mapa, escurecido
+      this.fogOn = true; // a tela desliga (botão Névoa) para testes: aí dá para andar até casas que ainda não viu
+      this.sightKey = ''; // de onde o campo de visão foi calculado (posição e portas abertas)
+      this.sight = new Set(); // casas que você enxerga agora
 
       if (this.tutorial) {
         this.arrangeTutorial();
@@ -905,6 +910,8 @@
       const target = DC.enemyHere(f, x, y);
       const blocked = (bx, by) => {
         const e = DC.enemyHere(f, bx, by);
+        // Com a névoa, só dá para andar por casas que você já viu.
+        if (this.fogOn && !this.isCellShown(bx, by)) return true;
         return Boolean(e) && e !== target;
       };
       const found = DC.reach(f, this.player, Infinity, blocked);
@@ -925,6 +932,7 @@
       const from = { x: this.player.x, y: this.player.y };
       if (Math.abs(x - from.x) + Math.abs(y - from.y) !== 1) return fail('Só dá para andar uma casa por vez.');
       const floorBefore = f;
+      const seenBefore = new Set(this.fogOn && !this.wholeRooms() ? f.enemies.filter((e) => !e.dead && this.isCellVisible(e.x, e.y)).map((e) => e.id) : []);
       const foe = DC.enemyHere(f, x, y);
       if (foe) {
         // Andar contra um inimigo (dormindo ou não) é atacá-lo.
@@ -955,6 +963,10 @@
         } else {
           this.passTurn(result);
         }
+      }
+      // Um inimigo que entrou no seu campo de visão neste passo interrompe a caminhada automática.
+      if (result.moved && this.fogOn && !this.wholeRooms()) {
+        result.sawEnemy = f === this.floor && f.enemies.some((e) => !e.dead && !seenBefore.has(e.id) && this.isCellVisible(e.x, e.y));
       }
       this.afterAction();
       return result;
@@ -1067,7 +1079,7 @@
     // A caminhada automática deve parar? Quando algo muda: combate, armadilha, comida achada, descida, um inimigo
     // acordando ou perseguindo você, ou uma janela aberta.
     stopWalking(result) {
-      return Boolean(result.combat || result.trap || result.descended || result.secretFound || (result.picked && result.picked.length) || (result.woke && result.woke.length) || this.pending || this.status !== 'playing' || this.chasers().length);
+      return Boolean(result.combat || result.trap || result.descended || result.secretFound || result.sawEnemy || (result.picked && result.picked.length) || (result.woke && result.woke.length) || this.pending || this.status !== 'playing' || this.chasers().length);
     }
 
     // Anda até x,y passo a passo, parando quando algo muda (para os testes e atalhos; a tela anima cada passo).
@@ -1097,14 +1109,32 @@
 
     // ---------- névoa ----------
 
-    // Você só enxerga a sala em que está e as salas cuja porta já abriu. As
-    // portas e paredes que cercam essas salas também aparecem; o que está
-    // atrás de uma porta fechada continua escondido.
-    isCellShown(x, y) {
+    // A névoa funciona por CASA (como no Shattered Pixel Dungeon): você enxerga num círculo de `viewRadius` casas, com
+    // linha de visão (parede e porta fechada tapam), e o que já viu fica no mapa, escurecido (`isCellShown`); só o que
+    // está no campo de visão agora aparece vivo (`isCellVisible`: é o único jeito de ver um inimigo). Descobrir onde
+    // estão as portas e os baús é andar pela sala. O treino e a sala do Chefão (pequenos) mostram a sala inteira.
+    wholeRooms() {
+      return this.tutorial || Boolean(this.floor.boss) || !this.config.viewRadius;
+    }
+
+    // Recalcula o campo de visão se você andou ou se uma porta abriu (ou foi achada) desde a última vez.
+    syncSight() {
+      const f = this.floor;
+      let doors = 0;
+      for (const d of f.doors) doors += (d.open ? 1 : 0) + (d.found ? 2 : 0);
+      const key = `${this.floorNo}:${this.player.x},${this.player.y}:${doors}`;
+      if (key === this.sightKey) return;
+      this.sightKey = key;
+      this.sight = DC.fieldOfView(f, this.player.x, this.player.y, this.config.viewRadius);
+      if (!this.seenCells[this.floorNo]) this.seenCells[this.floorNo] = new Set();
+      for (const k of this.sight) this.seenCells[this.floorNo].add(k);
+    }
+
+    // Salas inteiras (treino e Chefão): a sala em que você está e as salas cuja porta já abriu.
+    roomShown(x, y) {
       const f = this.floor;
       const cell = DC.cellAt(f, x, y);
       if (!cell || cell.type === 'void') return false;
-      if (this.mapped.has(this.floorNo)) return true; // pergaminho de mapa
       const seen = (id) => id !== null && this.visited.has(id);
 
       if (cell.type === 'door') {
@@ -1120,6 +1150,24 @@
         }
       }
       return false;
+    }
+
+    // A casa já foi vista (mesmo que agora esteja fora do seu campo de visão)?
+    isCellShown(x, y) {
+      const f = this.floor;
+      const cell = DC.cellAt(f, x, y);
+      if (!cell || cell.type === 'void') return false;
+      if (this.mapped.has(this.floorNo)) return true; // pergaminho de mapa
+      if (this.wholeRooms()) return this.roomShown(x, y);
+      this.syncSight();
+      return this.seenCells[this.floorNo].has(y * f.w + x);
+    }
+
+    // A casa está no seu campo de visão agora? (Inimigos só aparecem aqui.)
+    isCellVisible(x, y) {
+      if (this.wholeRooms()) return this.roomShown(x, y);
+      this.syncSight();
+      return this.sight.has(y * this.floor.w + x);
     }
 
     // ---------- abrir portas e baús ----------
