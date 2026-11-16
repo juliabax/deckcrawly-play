@@ -863,7 +863,7 @@
       const f = g.floor;
       const cell = f.grid[y][x];
       let target = { x, y };
-      if (['door', 'chest', 'fixture'].includes(cell.type)) target = this.sideOf(x, y);
+      if (this.needsSide(cell)) target = this.sideOf(x, y);
       const path = target ? g.pathFor(target.x, target.y) : null;
       if (!path) return null;
       for (const p of path) this.tileEls[p.y * f.w + p.x].classList.add('path');
@@ -871,6 +871,13 @@
       if (DC.enemyHere(f, last.x, last.y)) this.tileEls[last.y * f.w + last.x].classList.add('fight');
       else this.tileEls[last.y * f.w + last.x].classList.add('path-end');
       return path;
+    }
+
+    // Porta fechada, baú e objetos de sala não se pisam: o personagem vai até a casa ao lado. Porta ABERTA é uma casa
+    // comum (o vão): dá para clicar nela e andar até lá.
+    needsSide(cell) {
+      if (cell.type === 'door') return !this.game.floor.doors[cell.ref].open;
+      return cell.type === 'chest' || cell.type === 'fixture';
     }
 
     // A casa livre mais perto de você que encosta numa porta ou baú (para andar até ela).
@@ -1496,7 +1503,7 @@
       const g = this.game;
       const cell = g.floor.grid[y][x];
       let target = { x, y };
-      if (['door', 'chest', 'fixture'].includes(cell.type)) {
+      if (this.needsSide(cell)) {
         target = this.sideOf(x, y);
         if (!target) return this.toast('Não dá para chegar perto dali.');
         if (target.x === g.player.x && target.y === g.player.y) return;
