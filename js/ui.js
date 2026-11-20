@@ -833,7 +833,8 @@
       const to = g.locate(front.id);
       const from = g.locate(card.id);
       if (!to || !from || to.col === from.col) return null;
-      if (Math.abs(card.rank - front.rank) !== 1) return 'Só empilha carta que seja exatamente 1 a mais ou a menos (7♠, 6♠, 5♠): a pilha desce de 1 em 1.';
+      const why = g.stackError(card, front) && g.stackError(front, card);
+      if (why) return why;
       return `A pilha já tem ${g.config.stackMax} cartas.`;
     }
 
@@ -917,7 +918,7 @@
       const card = this.sel.length === 1 ? g.findFree(this.sel[0]) : null;
       if (!card) return this.toast('Escolha 1 carta da frente de um slot e aperte Y para empilhar nela outra carta.');
       const onto = g.freeCards().find((o) => o !== card && !g.stackError(card, o) && g.colOf(o).length < g.config.stackMax && g.colOf(o) !== g.colOf(card));
-      if (!onto) return this.toast(`Não há onde empilhar ${label(card)}: precisa de ${DC.rankLabel(card.rank + 1)}${DC.SUIT_SYMBOL[card.suit]} livre na frente de um slot.`);
+      if (!onto) return this.toast(`Não há onde empilhar ${label(card)}: precisa de um ${DC.SUIT_SYMBOL[card.suit]} maior${g.config.stackConsecutive ? ' (só 1 a mais)' : ''} livre na frente de um slot.`);
       const res = g.stackCard(card.id, onto.id);
       if (!res.ok) return this.reject(res.error);
       this.sel = [];
@@ -4471,7 +4472,7 @@
           <li><b>♣ Paus:</b> coringa. Vale o próprio número, mas você pode escolher copiar o rank de outra carta da mão.</li>
         </ul>
         <h4>Pilhas na mão</h4>
-        <p>A mão tem <b>${this.game.config.handMax} slots</b> e cada slot guarda uma carta ou uma <b>pilha de até ${this.game.config.stackMax}</b>. Para empilhar, <b>arraste</b> uma carta (a da frente do slot dela) para cima de outra do <b>mesmo naipe</b> que seja <b>exatamente 1 maior</b>: o 5♠ vai em cima do 6♠, que está em cima do 7♠. Em cada pilha, a carta que fica por último, na <b>frente</b> (a menor), é a <b>livre</b>: ela vale sozinha, ou somada com as de trás dela, <b>sempre de baixo para cima</b> (5♠ + 6♠ valem 11, mas a 7♠ sozinha está <b>presa</b>). Tocar numa carta presa escolhe ela e todas as da frente. Poderes, fuga, altar, mesa, anéis e comida só usam a carta livre; o anel de naipe e a oficina pedem a carta <b>fora da pilha</b>. As cartas novas (compra, baú, sala nova) entram em <b>slots livres</b> e <b>nunca se empilham sozinhas</b>; sem slot livre, nada entra. Para tirar a carta da frente da pilha, arraste-a para um slot livre (tracejado). Empilhar e desempilhar é grátis, a qualquer momento. O inventário também empilha, e dá para empilhar entre a mão e o inventário.</p>
+        <p>A mão tem <b>${this.game.config.handMax} slots</b> e cada slot guarda uma carta ou uma <b>pilha de até ${this.game.config.stackMax}</b>. Para empilhar, <b>arraste</b> uma carta (a da frente do slot dela) para cima de outra do <b>mesmo naipe</b> que seja <b>maior</b>${this.game.config.stackConsecutive ? ' (exatamente 1 a mais)' : ' (qualquer uma: o 2♠ vai em cima do 5♠, que está em cima do 9♠)'}. A pilha sempre <b>desce</b> do fundo para a frente. Em cada pilha, a carta que fica por último, na <b>frente</b> (a menor), é a <b>livre</b>: ela vale sozinha, ou somada com as de trás dela, <b>sempre de baixo para cima</b> (5♠ + 9♠ valem 14, mas a 9♠ sozinha está <b>presa</b>). Tocar numa carta presa escolhe ela e todas as da frente. Poderes, fuga, altar, mesa, anéis e comida só usam a carta livre; o anel de naipe e a oficina pedem a carta <b>fora da pilha</b>. As cartas novas (compra, baú, sala nova) entram em <b>slots livres</b> e <b>nunca se empilham sozinhas</b>; sem slot livre, nada entra. Para tirar a carta da frente da pilha, arraste-a para um slot livre (tracejado). Empilhar e desempilhar é grátis, a qualquer momento. O inventário também empilha, e dá para empilhar entre a mão e o inventário.</p>
         <h4>Anéis e mana</h4>
         <p>Os anéis ficam no dedo (<b>2 espaços</b>). Vêm de <b>baús</b> (metade deles guarda um, e o do <b>andar 1</b> sempre guarda) e de <b>inimigos</b> (os mais difíceis deixam mais). Ao achar um, você escolhe em que espaço vesti-lo, trocando o que estiver lá, ou deixa para trás. <b>Passivos</b> (valem sozinhos): <b>Mão</b> +1 na mão máxima, <b>Deck</b> +1 carta ao abrir sala nova, <b>Comida</b> porta aberta com soma exata põe 1 carta nova no deck, <b>Mago</b> +4 de mana máxima. <b>Ativos</b> (gastam ${this.game.config.ringUseMana} de mana por uso: escolha 1 carta da mão e toque no anel): <b>Ladrão</b> a carta sobe ou desce 1 ao pagar portas e baús, <b>Precisão</b> a carta sobe ou desce 1 em combate (só aquela carta, uma vez; com ♠ o ajuste entra depois do dobro), e os <b>anéis de naipe</b> (♠ ♥ ♦ ♣) viram a carta daquele naipe até ser usada.</p>
         <h4>Grama</h4>

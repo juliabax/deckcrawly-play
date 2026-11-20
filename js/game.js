@@ -4,7 +4,8 @@
   const DEFAULT_CONFIG = {
     floors: 5,
     handMax: 5, // slots da mão: cada slot guarda uma carta ou uma pilha (stackMax)
-    stackMax: 3, // cartas por pilha: mesmo naipe, cada uma exatamente 1 menor que a de baixo; só se usa a da frente (a menor)
+    stackMax: 3, // cartas por pilha: mesmo naipe, cada uma MENOR que a de baixo; só se usa a da frente (a menor)
+    stackConsecutive: false, // true: cada carta tem que ser exatamente 1 menor que a de baixo (7, 6, 5). false: qualquer menor do mesmo naipe (7, 4, 2)
     chestOptions: 5,
     chestPicks: 2,
     bossFormation: [3, 2, 3, 2], // o chefão da sala final: cartas por fila, da frente (aberta) para o fundo (travadas)
@@ -324,12 +325,13 @@
       return null;
     }
 
-    // Por que `card` não pode ir para cima de `onto` (ou null se pode): mesmo naipe, exatamente 1 a menos e a carta
-    // de baixo tem que ser a da frente da pilha dela, que não pode estar cheia.
+    // Por que `card` não pode ir para cima de `onto` (ou null se pode): mesmo naipe e valor menor (com `stackConsecutive`,
+    // exatamente 1 a menos).
     stackError(card, onto) {
       if (card === onto) return 'Escolha outra carta para empilhar.';
       if (card.suit !== onto.suit) return 'Só empilha carta do mesmo naipe.';
-      if (card.rank !== onto.rank - 1) return `Precisa ser ${DC.rankLabel(onto.rank - 1)}${DC.SUIT_SYMBOL[onto.suit]}: a pilha desce de 1 em 1.`;
+      if (card.rank >= onto.rank) return `Só empilha carta menor: o ${DC.rankLabel(card.rank)} não vai em cima do ${DC.rankLabel(onto.rank)}.`;
+      if (this.config.stackConsecutive && card.rank !== onto.rank - 1) return `Precisa ser ${DC.rankLabel(onto.rank - 1)}${DC.SUIT_SYMBOL[onto.suit]}: a pilha desce de 1 em 1.`;
       return null;
     }
 
