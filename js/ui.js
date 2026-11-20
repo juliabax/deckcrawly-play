@@ -774,7 +774,7 @@
         if (t && t.el !== cand.src) {
           // Em cima de uma carta que ela pode cobrir (mesmo naipe, 1 a menos), a mira vira "empilhar".
           const onto = t.kind === 'handcard' || (t.kind === 'slot' && t.el.dataset.id) ? this.stackOnto(cand.id, t.el) : null;
-          const mark = onto && t.kind === 'handcard' ? this.el.hand.querySelector(`.card[data-id="${onto.id}"]`) : t.el;
+          const mark = onto && t.kind === 'handcard' ? this.el.hand.querySelector(`.card[data-id="${(onto.card.id === cand.id ? onto.onto : onto.card).id}"]`) || t.el : t.el;
           mark.classList.add(onto ? 'drop-stack' : 'drop-target');
         }
       }, { passive: false });
@@ -800,24 +800,41 @@
       }, true);
     }
 
-    // A carta da frente do slot (da mão ou do inventário) que `cardId` poderia cobrir, ou null: mesmo naipe, exatamente
-    // 1 a menos, pilha com espaço, e não é o próprio slot dela.
+    // A carta da frente do slot que está sob `el` (um slot do inventário ou uma carta da mão).
+    frontUnder(el) {
+      const g = this.game;
+      if (el.classList.contains('stash-slot')) return g.stash.find((c) => c.id === el.dataset.id) || null;
+      const col = g.cols.find((k) => k.some((c) => c.id === el.dataset.id));
+      return col ? col[col.length - 1] : null;
+    }
+
+    // Soltar `cardId` em cima de `el` empilha? Devolve { card, onto } (a carta que se move e a que ela cobre) ou null.
+    // Vale nos dois sentidos: arrastar o 5♠ para o 6♠ põe o 5♠ em cima; arrastar o 6♠ para o 5♠ também (o 5♠ vai para a pilha do 6♠).
     stackOnto(cardId, el) {
       const g = this.game;
       const card = g.hand.find((c) => c.id === cardId) || g.stash.find((c) => c.id === cardId);
-      if (!card) return null;
-      let front = null;
-      if (el.classList.contains('stash-slot')) front = g.stash.find((c) => c.id === el.dataset.id) || null;
-      else {
-        const col = g.cols.find((k) => k.some((c) => c.id === el.dataset.id));
-        front = col ? col[col.length - 1] : null;
-      }
-      if (!front || front === card) return null;
+      const front = this.frontUnder(el);
+      if (!card || !front || front === card) return null;
       const to = g.locate(front.id);
       const from = g.locate(card.id);
-      if (!to || !from || to.col === from.col || to.col.length >= g.config.stackMax) return null;
-      if (from.col[from.col.length - 1] !== card) return null;
-      return g.stackError(card, front) ? null : front;
+      if (!to || !from || to.col === from.col || from.col[from.col.length - 1] !== card) return null;
+      const max = g.config.stackMax;
+      if (!g.stackError(card, front) && to.col.length < max) return { card, onto: front };
+      if (!g.stackError(front, card) && from.col.length < max) return { card: front, onto: card };
+      return null;
+    }
+
+    // Por que soltar `cardId` em cima de `el` não empilhou (só para cartas do mesmo naipe: o resto é só reorganizar).
+    stackWhy(cardId, el) {
+      const g = this.game;
+      const card = g.hand.find((c) => c.id === cardId) || g.stash.find((c) => c.id === cardId);
+      const front = this.frontUnder(el);
+      if (!card || !front || front === card || card.suit !== front.suit) return null;
+      const to = g.locate(front.id);
+      const from = g.locate(card.id);
+      if (!to || !from || to.col === from.col) return null;
+      if (Math.abs(card.rank - front.rank) !== 1) return 'Só empilha carta que seja exatamente 1 a mais ou a menos (7♠, 6♠, 5♠): a pilha desce de 1 em 1.';
+      return `A pilha já tem ${g.config.stackMax} cartas.`;
     }
 
     // Solta a carta `c` (de onde veio e o id) em cima do alvo.
@@ -828,12 +845,14 @@
       // Em cima de uma carta que ela pode cobrir: empilha (grátis).
       const onto = target.kind === 'handcard' || (target.kind === 'slot' && target.el.dataset.id) ? this.stackOnto(c.id, target.el) : null;
       if (onto) {
-        const res = g.stackCard(c.id, onto.id);
+        const res = g.stackCard(onto.card.id, onto.onto.id);
         if (!res.ok) return this.reject(res.error);
         this.track('stack');
         this.sound('stash');
         return this.renderAll();
       }
+      const why = target.kind === 'handcard' || (target.kind === 'slot' && target.el.dataset.id) ? this.stackWhy(c.id, target.el) : null;
+      if (why) this.toast(why);
       if (c.from === 'hand') {
         if (target.kind === 'handcard') {
           const res = g.moveHandCard(c.id, colOf(target.el));
