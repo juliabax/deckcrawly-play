@@ -3839,3 +3839,72 @@ html.show-splash .splash {
   pointer-events: none;
   image-rendering: pixelated;
 }
+
+/* carta voando para o deck: a costas da carta aparece por cima no fim do voo */
+.fx-layer .ghost .ghost-back {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: repeating-linear-gradient(45deg, #5a3482 0 6px, #472a68 6px 12px);
+  border: 3px solid var(--paper);
+  opacity: 0;
+}
+
+/* ---------- teclado ---------- */
+kbd {
+  display: inline-block;
+  margin-left: 0.5em;
+  padding: 0 0.4em;
+  font: 700 0.62em/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  letter-spacing: 0.02em;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  opacity: 0.75;
+  vertical-align: middle;
+}
+
+/* número da tecla em cima de cada carta da mão e dos itens das janelas (só no computador) */
+.kbd-n {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  translate: -50% 0;
+  min-width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  padding: 0 4px;
+  font: 800 11px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #2a1c05;
+  background: var(--accent);
+  border-radius: 9px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  z-index: 6;
+}
+
+html.touch kbd,
+html.touch .kbd-n {
+  display: none;
+}
+
+.overlay .btn.offer,
+.overlay [data-ov='ring-wear'] {
+  position: relative;
+}
+
+/* o cursor do teclado: o item da janela ou a carta do inimigo que o Espaço vai marcar */
+body.kbd .overlay .kbd-cursor {
+  outline: 3px dashed #7fd3ff;
+  outline-offset: 3px;
+}
+
+body.kbd .board-slot.kbd-cursor {
+  outline: 3px dashed #7fd3ff;
+  outline-offset: 6px;
+  border-radius: 8px;
+}
+
+body:not(.kbd) .kbd-cursor {
+  outline: none;
+}

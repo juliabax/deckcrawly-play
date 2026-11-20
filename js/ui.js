@@ -208,7 +208,7 @@
       this.foeHit = false;
       this.revealIds = []; // cartas do inimigo que acabaram de desvirar (animação)
       this.newSlot = -1; // slot que acabou de ser liberado por um pergaminho (animação)
-      this.fxEnter = null; // de onde a carta que volta do slot "sai" (padrão: a pilha do deck)
+      this.fxEnter = null; // de onde a carta nova da mão "sai": um retângulo, ou um Map id -> retângulo (padrão: a pilha do deck)
       this.handReset = true; // a primeira mão é "dada" com animação, sem comparar com a anterior
       this.lastCounts = null;
       this.fxExit = null; // para onde as cartas gastas voam (padrão: o descarte)
@@ -445,36 +445,273 @@
         }
         return;
       }
-      if (this.lastOverlay === 'tutorial' && !this.el.overlay.hidden) return; // a janela do tutorial só usa os botões
-      if (e.key === 'Escape') {
+      const k = e.key;
+      const mod = e.metaKey || e.ctrlKey || e.altKey;
+      const g = this.game;
+      this.setKbd(true);
+      const menu = document.getElementById('menu');
+      if (k === 'Escape' && !menu.hidden) {
+        document.getElementById('btn-menu').click();
+        return;
+      }
+      // Um botão que ficou com o foco depois de um clique não pode ser acionado de novo por Enter e Espaço.
+      const active = document.activeElement;
+      if ((k === 'Enter' || k === ' ') && active && active.tagName === 'BUTTON' && !active.closest('#menu')) active.blur();
+
+      const popup = !this.el.overlay.hidden;
+      if (popup && !mod && this.popupKey(e)) {
+        e.preventDefault();
+        return;
+      }
+      if (k === 'Escape') {
         if (this.reportView) {
           this.reportView = false;
           this.renderOverlay();
         } else if (this.help) {
           this.help = false;
           this.renderOverlay();
-        } else if (this.sel.length) {
+        } else if (this.sel.length || this.targets.size) {
           this.sel = [];
+          this.targets = new Set();
           this.refreshSelection();
         }
         return;
       }
-      if ((e.key === 'f' || e.key === 'F') && !e.metaKey && !e.ctrlKey && !e.altKey) return this.toggleFog();
-      if ((e.key === 'e' || e.key === 'E') && !e.metaKey && !e.ctrlKey && !e.altKey) return this.toggleFx();
-      if ((e.key === 'a' || e.key === 'A') && !e.metaKey && !e.ctrlKey && !e.altKey) return this.toggleArt();
-      if ((e.key === 'm' || e.key === 'M') && !e.metaKey && !e.ctrlKey && !e.altKey) return this.toggleSound();
-      if ((e.key === 'c' || e.key === 'C') && !e.metaKey && !e.ctrlKey && !e.altKey) return this.centerCamera();
-      if (!e.metaKey && !e.ctrlKey && !e.altKey) {
-        if (e.key === '+' || e.key === '=') return this.changeZoom(1);
-        if (e.key === '-' || e.key === '_') return this.changeZoom(-1);
-      }
-      const dir = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[e.key];
-      if (dir && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      if (mod) return;
+      const lower = k.length === 1 ? k.toLowerCase() : k;
+      if (lower === 'f') return this.toggleFog();
+      if (lower === 'e') return this.toggleFx();
+      if (lower === 'a') return this.toggleArt();
+      if (lower === 'm') return this.toggleSound();
+      if (popup || this.busy || g.status !== 'playing') return; // o resto vale só com o mapa ou o combate à vista
+      if (lower === 'c') return this.centerCamera();
+      if (k === '+' || k === '=') return this.changeZoom(1);
+      if (k === '-' || k === '_') return this.changeZoom(-1);
+
+      // Combate: setas escolhem a carta do inimigo, Espaço marca, Enter derruba, T troca e X foge.
+      if (g.inCombat() && this.combatKeyboard(e)) {
         e.preventDefault();
-        return this.stepDir(dir[0], dir[1]);
+        return;
       }
-      const n = Number(e.key);
-      if (n >= 1 && n <= 5 && this.game.hand[n - 1]) this.toggleCard(this.game.hand[n - 1].id);
+
+      // Mapa: seta anda um passo (ou abre a porta, o baú ou o objeto que está nessa direção); Shift + seta corre.
+      const dir = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[k];
+      if (dir) {
+        e.preventDefault();
+        return e.shiftKey ? this.runDir(dir[0], dir[1]) : this.stepDir(dir[0], dir[1]);
+      }
+      // Cartas da mão: 1 a 9.
+      if (/^[1-9]$/.test(k) && g.hand[Number(k) - 1]) return this.toggleCard(g.hand[Number(k) - 1].id);
+
+      if (k === 'Enter' || k === ' ') {
+        e.preventDefault();
+        return this.kbdAct();
+      }
+      if (lower === 'p') return this.kbdPower();
+      if (lower === 'j') return this.kbdJoker();
+      if (lower === 's') return this.kbdStore();
+      if (lower === 'd') return this.kbdTake();
+      if (lower === 'g') {
+        if (!g.discard.length) return this.toast('O cemitério está vazio.');
+        this.graveView = true;
+        return this.renderOverlay();
+      }
+      if (lower === 'h' || k === '?') {
+        this.help = true;
+        this.track('help');
+        return this.renderOverlay();
+      }
+      if (k === ',' || k === '<') return this.kbdAdjust(-1);
+      if (k === '.' || k === '>') return this.kbdAdjust(1);
+      if (lower === 'n') return this.kbdSuitRing();
+    }
+
+    // O foco do teclado: com ele ligado aparecem os números e o cursor; um clique do mouse desliga.
+    setKbd(on) {
+      if (this.kbdActive === on) return;
+      this.kbdActive = on;
+      document.body.classList.toggle('kbd', on);
+    }
+
+    // Itens que dá para escolher no teclado dentro de uma janela: cartas, ofertas da estante e espaços de anel.
+    popupItems() {
+      return [...this.el.overlay.querySelectorAll('.card[data-ov], .btn.offer[data-ov], [data-ov="ring-wear"]')];
+    }
+
+    // Marca o item do cursor e numera os 9 primeiros (só se couberem todos).
+    markKbd() {
+      const items = this.popupItems();
+      for (const n of this.el.overlay.querySelectorAll('.kbd-cursor, .kbd-n')) {
+        n.classList.remove('kbd-cursor');
+        if (n.classList.contains('kbd-n')) n.remove();
+      }
+      if (!items.length) return;
+      this.kbdIdx = Math.min(this.kbdIdx || 0, items.length - 1);
+      items[this.kbdIdx].classList.add('kbd-cursor');
+      if (items.length <= 9) items.forEach((n, i) => n.insertAdjacentHTML('beforeend', `<span class="kbd-n">${i + 1}</span>`));
+    }
+
+    // Teclas dentro das janelas. Devolve verdadeiro se tratou a tecla.
+    // Números e setas escolhem, Espaço marca o item do cursor, Enter confirma o botão principal e Esc fecha/deixa para trás.
+    popupKey(e) {
+      const kind = this.lastOverlay;
+      const k = e.key;
+      const root = this.el.overlay;
+      if (['report', 'won', 'lost'].includes(kind)) return false;
+      const click = (el) => {
+        if (!el || el.disabled) return false;
+        el.click();
+        return true;
+      };
+      const primary = () => root.querySelector('.actions .btn.primary:not(:disabled)');
+      if (kind === 'tutorial') {
+        if (k === 'Enter' || k === ' ' || k === 'ArrowRight') return click(primary());
+        if (k === 'ArrowLeft') return click(root.querySelector('[data-ov="tour-prev"]'));
+        return false;
+      }
+      if (k === 'Escape') return click(root.querySelector('[data-ov="special-close"], [data-ov="ring-leave"], [data-ov="close-grave"], [data-ov="close-help"]'));
+      const items = this.popupItems();
+      const at = Math.min(this.kbdIdx || 0, Math.max(items.length - 1, 0));
+      if (k === 'Enter') return click(primary()) || click(items[at]);
+      if (k === ' ') return click(items[at]);
+      if (['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp'].includes(k) && items.length) {
+        const d = k === 'ArrowRight' || k === 'ArrowDown' ? 1 : -1;
+        this.kbdIdx = (at + d + items.length) % items.length;
+        this.markKbd();
+        items[this.kbdIdx].scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        return true;
+      }
+      if (/^[0-9]$/.test(k) && items.length) {
+        const i = k === '0' ? 9 : Number(k) - 1;
+        if (!items[i]) return true;
+        this.kbdIdx = i;
+        return click(items[i]);
+      }
+      return false;
+    }
+
+    // Combate no teclado. Devolve verdadeiro se tratou a tecla.
+    combatKeyboard(e) {
+      const g = this.game;
+      const enemy = g.combatEnemy();
+      if (!enemy) return false;
+      const k = e.key;
+      const lower = k.length === 1 ? k.toLowerCase() : k;
+      // Cartas abertas do inimigo na ordem da mesa: fila da frente primeiro, da esquerda para a direita.
+      const rows = enemy.rows && enemy.rows.length ? enemy.rows : [enemy.cards.map((c) => c.id)];
+      const open = this.foeTargets(enemy);
+      const order = [...rows].reverse().flat().filter((id) => open.some((c) => c.id === id));
+      if (['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp'].includes(k)) {
+        if (!order.length) return true;
+        const at = order.indexOf(this.foeCursor);
+        const d = k === 'ArrowRight' || k === 'ArrowDown' ? 1 : -1;
+        this.foeCursor = order[(at < 0 ? (d > 0 ? 0 : order.length - 1) : (at + d + order.length) % order.length)];
+        this.renderCombat();
+        return true;
+      }
+      if (k === ' ') {
+        if (!order.length) return true;
+        if (!order.includes(this.foeCursor)) this.foeCursor = order[0];
+        this.onFoeClick(this.foeCursor);
+        return true;
+      }
+      if (k === 'Enter') {
+        this.onFoeGo();
+        return true;
+      }
+      if (lower === 't') {
+        this.onFoeTrade();
+        return true;
+      }
+      if (lower === 'x') {
+        if (enemy.boss) this.toast('Não há como fugir do Chefão!');
+        else this.doFlee();
+        return true;
+      }
+      return false;
+    }
+
+    // Enter ou Espaço no mapa: abre a porta, o baú ou o objeto que está ao lado (se for só um).
+    kbdAct() {
+      const g = this.game;
+      if (this.busy || !g.canAct()) return;
+      const near = [...g.adjacentTargets(), ...g.adjacentFixtures()];
+      if (!near.length) return this.toast('Chegue ao lado de uma porta, baú ou objeto (setas) e aperte Enter.');
+      if (near.length > 1) return this.toast('Tem mais de uma coisa ao lado: aperte a seta na direção da que você quer.');
+      this.interactAt(near[0].x, near[0].y);
+    }
+
+    // P: usa o poder da carta escolhida (♥ compra, ♦ vira mana).
+    kbdPower() {
+      const btn = this.el.power.querySelector('.power-btn:not(:disabled)');
+      if (btn) return btn.click();
+      this.toast(this.sel.length === 1 ? 'Essa carta não tem poder agora.' : 'Escolha 1 carta ♥ (comprar) ou ♦ (mana) e aperte P.');
+    }
+
+    // J: passa pelas escolhas do coringa ♣ (o próprio número, ou copiar outra carta da mão).
+    kbdJoker() {
+      const btns = [...this.el.power.querySelectorAll('[data-joker]')];
+      if (!btns.length) return this.toast('Escolha uma carta ♣ para trocar o valor dela.');
+      const at = btns.findIndex((b) => b.classList.contains('on'));
+      btns[(at + 1) % btns.length].click();
+    }
+
+    // S: guarda a carta escolhida no primeiro slot livre do inventário.
+    kbdStore() {
+      const slot = this.el.stash.querySelector('.stash-slot.open');
+      if (!slot) return this.toast(this.game.slotsOpen ? 'Seus slots estão cheios.' : 'Você ainda não tem slot de inventário.');
+      this.onSlotClick(slot);
+    }
+
+    // D: devolve à mão uma carta guardada (a cada aperto, a próxima).
+    kbdTake() {
+      const slots = [...this.el.stash.querySelectorAll('.stash-slot.filled')];
+      if (!slots.length) return this.toast('Não há carta guardada.');
+      this.stashIdx = (this.stashIdx || 0) % slots.length;
+      this.onSlotClick(slots[this.stashIdx]);
+      this.stashIdx++;
+    }
+
+    // , e .: −1 ou +1 na carta escolhida, com o anel ou o pergaminho que serve agora (Precisão em combate, Ladrão nas portas).
+    kbdAdjust(dir) {
+      const g = this.game;
+      const use = g.inCombat() ? 'fight' : 'pay';
+      const cost = g.config.ringUseMana;
+      for (let i = 0; i < g.rings.length; i++) {
+        const def = g.rings[i] && DC.ROGUE.RINGS[g.rings[i].ring];
+        if (def && def.signed && def.use === use && g.mana >= cost) return this.onRingClick(i, dir);
+      }
+      const item = g.items.find((it) => DC.ROGUE.ITEMS[it.item].signed && DC.ROGUE.ITEMS[it.item].use === use);
+      if (item) return this.useItemClick(item.id, dir);
+      this.toast(`Sem anel (com ${cost} de mana) nem pergaminho de ±1 para ${use === 'fight' ? 'o combate' : 'portas e baús'}.`);
+    }
+
+    // N: usa o primeiro anel de naipe (muda o naipe da carta escolhida).
+    kbdSuitRing() {
+      const g = this.game;
+      const i = g.rings.findIndex((r) => r && DC.ROGUE.RINGS[r.ring].suit);
+      if (i < 0) return this.toast('Você não tem anel de naipe.');
+      this.onRingClick(i, 0);
+    }
+
+    // Shift + seta: corre em linha reta até algo mudar (parede, porta, comida, inimigo à vista).
+    runDir(dx, dy) {
+      const g = this.game;
+      if (this.busy || !g.canAct()) return;
+      const f = g.floor;
+      const path = [{ x: g.player.x, y: g.player.y }];
+      let { x, y } = g.player;
+      for (let i = 0; i < 40; i++) {
+        x += dx;
+        y += dy;
+        const cell = DC.cellAt(f, x, y);
+        const ok = cell && (['floor', 'start'].includes(cell.type) || (cell.type === 'door' && f.doors[cell.ref].open)) && !DC.enemyHere(f, x, y) && (!g.fogOn || g.isCellShown(x, y));
+        if (!ok) break;
+        path.push({ x, y });
+        if (cell.type === 'door') break; // o vão da porta é uma parada natural
+      }
+      if (path.length < 2) return this.stepDir(dx, dy);
+      this.walkPath(path);
     }
 
     // ---------- arrastar cartas ----------
@@ -985,6 +1222,59 @@
       afterAnim(anim, () => ghost.remove());
     }
 
+    // Cartas novas que ENTRAM NO DECK (comida, grama, poço, cripta, mesa, Anel da Comida): voam de onde vieram até a pilha do
+    // deck, encolhendo e virando de costas, e o contador do deck pulsa quando cada uma chega. `froms` é um retângulo por
+    // carta (ou um só para todas). Assim a pessoa vê que elas foram para o deck, e não para a mão.
+    deckGainFx(cards, froms) {
+      const to = this.pileRect(0);
+      if (!this.fxOn || !to || !cards || !cards.length) return;
+      const list = (Array.isArray(froms) ? froms : [froms]).filter(Boolean);
+      if (!list.length) return;
+      const b = centerOf(to);
+      cards.forEach((card, i) => {
+        const from = list[i] || list[list.length - 1];
+        const a = centerOf(from);
+        const w = Math.max(44, Math.min(from.width || 70, 92));
+        const h = w * 1.4;
+        const ghost = htmlToEl(cardHTML(card, { extra: 'static' }));
+        ghost.classList.add('ghost');
+        ghost.style.setProperty('--cw', `${w}px`);
+        Object.assign(ghost.style, { left: `${a.x - w / 2}px`, top: `${a.y - h / 2}px`, width: `${w}px`, height: `${h}px` });
+        ghost.insertAdjacentHTML('beforeend', '<div class="ghost-back"></div>');
+        this.el.fx.appendChild(ghost);
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const bow = (i % 2 ? 1 : -1) * (26 + i * 6);
+        const scale = Math.max(0.2, to.width / w);
+        const timing = { duration: 640, delay: 140 + i * 120, easing: 'cubic-bezier(.4,0,.2,1)', fill: 'both' };
+        // De frente no começo; perto do fim a costas do deck aparece por cima, como se a carta virasse ao entrar.
+        ghost.querySelector('.ghost-back').animate([{ opacity: 0 }, { opacity: 0, offset: 0.55 }, { opacity: 1 }], timing);
+        const anim = ghost.animate(
+          [
+            { transform: 'translate(0px, 0px) scale(1) rotate(0deg)', opacity: 1 },
+            { transform: `translate(${dx / 2 + bow}px, ${dy / 2 - 40}px) scale(${(1 + scale) / 2 + 0.15}) rotate(${bow / 2}deg)`, opacity: 1, offset: 0.5 },
+            { transform: `translate(${dx}px, ${dy}px) scale(${scale}) rotate(0deg)`, opacity: 0.95 },
+          ],
+          timing,
+        );
+        this.sound('draw', (timing.delay + 120) / 1000, 0.18);
+        afterAnim(anim, () => {
+          ghost.remove();
+          this.pulseDeck();
+        });
+      });
+    }
+
+    // O contador do deck "pula" (uma carta acabou de chegar).
+    pulseDeck() {
+      const pile = this.el.piles.children[0];
+      if (!pile) return;
+      pile.classList.remove('bump');
+      pile.style.setProperty('--bd', '0s');
+      void pile.offsetWidth;
+      pile.classList.add('bump');
+    }
+
     // Carta comprada: sai da pilha do deck e pousa na mão.
     flyIn(node, from, delay) {
       const to = node.getBoundingClientRect();
@@ -1475,16 +1765,37 @@
       if (!tile || this.busy || this.dragging || !this.game.canAct()) return;
       const x = Number(tile.dataset.x);
       const y = Number(tile.dataset.y);
-      const cell = this.game.floor.grid[y][x];
+      if (this.interactAt(x, y)) return;
+      this.tapTile = null;
+      this.walkTo(x, y);
+    }
 
-      if (cell.type === 'fixture' && this.game.adjacentFixtures().some((t) => t.x === x && t.y === y)) return this.useFixtureClick(x, y, tile);
+    // Abre a porta ou o baú, ou usa o objeto de sala, que está AO LADO em (x, y). Falso se não há nada assim ali
+    // (aí quem chamou anda até a casa). Vale para o clique e para a seta do teclado.
+    interactAt(x, y) {
+      const row = this.game.floor.grid[y];
+      const cell = row && row[x];
+      const tile = cell && this.tileEls[y * this.game.floor.w + x];
+      if (!tile) return false;
+
+      if (cell.type === 'fixture' && this.game.adjacentFixtures().some((t) => t.x === x && t.y === y)) {
+        this.useFixtureClick(x, y, tile);
+        return true;
+      }
       const adjacent = this.game.adjacentTargets().some((t) => t.x === x && t.y === y);
       if ((cell.type === 'door' || cell.type === 'chest') && adjacent) {
         const freeChest = cell.type === 'chest' && this.game.floor.chests[cell.ref].free;
-        if (!this.sel.length && !freeChest) return this.toast('Selecione cartas da mão para pagar o custo.');
+        if (!this.sel.length && !freeChest) {
+          this.toast(this.isTouch() ? 'Selecione cartas da mão para pagar o custo.' : 'Escolha cartas da mão (teclas 1 a 9) e aperte Enter ou a seta na direção da porta.');
+          return true;
+        }
         const rect = tile.getBoundingClientRect();
         const res = this.game.open(x, y, this.sel);
-        if (!res.ok) return this.reject(res.error);
+        if (!res.ok) {
+          this.reject(res.error);
+          return true;
+        }
+        let ringFlight = null;
         // As cartas voam até a porta, a névoa se abre a partir dela e o modal
         // das cartas da sala nova espera os efeitos terminarem.
         this.fxExit = { rect };
@@ -1495,20 +1806,24 @@
         if (res.ringCards && res.ringCards.length) {
           this.track('ring-food', { cards: res.ringCards.length });
           this.toastOk(`Anel da Comida: ${res.ringCards.map(label).join(', ')} entra no seu deck.`);
-          if (this.fxOn) this.floatText(`+${res.ringCards.length} carta nova no deck`, rect.left + rect.width / 2, rect.top - 10, 'gold');
+          if (this.fxOn) {
+            this.floatText(`+${res.ringCards.length} carta nova no deck`, rect.left + rect.width / 2, rect.top - 10, 'gold');
+            this.skipDeckBump = true;
+            ringFlight = { cards: res.ringCards, from: rect };
+          }
         }
         if (res.scroll) {
           this.track('scroll');
           this.newSlot = this.game.slotsOpen - 1;
         }
         this.renderAll();
+        if (ringFlight) this.deckGainFx(ringFlight.cards, ringFlight.from);
         this.openFx(res, rect);
         this.openSound(res);
         if (res.scroll) this.sound('scroll', 0.4);
-        return;
+        return true;
       }
-      this.tapTile = null;
-      this.walkTo(x, y);
+      return false;
     }
 
     // Andar é de graça: toque numa casa (ou num inimigo, porta ou baú) e o personagem vai passo a passo até lá,
@@ -1536,6 +1851,8 @@
     stepDir(dx, dy) {
       const g = this.game;
       if (this.busy || !g.canAct()) return;
+      // Seta na direção de uma porta, baú ou objeto de sala ao lado: abre ou usa (com as cartas escolhidas).
+      if (this.interactAt(g.player.x + dx, g.player.y + dy)) return;
       this.walkPath([{ x: g.player.x, y: g.player.y }, { x: g.player.x + dx, y: g.player.y + dy }]);
     }
 
@@ -1628,6 +1945,10 @@
         if (found.kind === 'card') {
           this.sound('ding', 0.15);
           this.toastOk(`Na grama tinha uma carta: ${label(found.card)} entra no seu deck.`);
+          if (this.fxOn && this.token) {
+            this.skipDeckBump = true;
+            this.deckGainFx([found.card], this.token.getBoundingClientRect());
+          }
           if (this.fxOn && t) {
             this.burst(t.x, t.y, { count: 14, color: '#7ed36b', spread: 56 });
             this.floatText('+1 carta no deck', t.x, t.y - 30, 'gold');
@@ -1741,23 +2062,30 @@
           this.renderOverlay();
           break;
         case 'confirm-refill': {
+          // As cartas vão do popup para a MÃO: cada uma sai do lugar onde estava virada na janela.
+          const gain = g.refillPreview();
+          const slots = [...this.el.overlay.querySelectorAll('.reveal-slot .card.front')].map((n) => n.getBoundingClientRect());
           const res = g.resolveRefill();
           if (!res.ok) return this.toast(res.error);
           this.track('refill');
           this.resetOverlayState();
+          this.fxEnter = new Map(gain.map((x, i) => [x.card.id, slots[i]]).filter(([, r]) => r));
           this.renderAll();
           break;
         }
         case 'confirm-reinforce': {
           const cards = g.pending.cards;
           const gold = g.pending.gold;
+          // De onde as cartas saem: as cartas viradas da janela da comida.
+          const from = [...this.el.overlay.querySelectorAll('.reveal-slot .card.front')].map((n) => n.getBoundingClientRect());
           const res = g.resolveReinforce();
           if (!res.ok) return this.toast(res.error);
           this.track('reinforce', { cards: cards.length, gold });
           this.sound('ding');
-          this.fxBumpDelay = [0.1, 0.26, 0];
+          this.skipDeckBump = this.fxOn;
           this.resetOverlayState();
           this.renderAll();
+          this.deckGainFx(cards, from);
           this.toastOk(`Seu deck ganhou ${cards.map(label).join(', ')}.`);
           break;
         }
@@ -1826,12 +2154,16 @@
           break;
         }
         case 'crypt-go': {
+          // De onde saem: as cartas do cemitério que você marcou (ou, sem achar, a pilha do cemitério).
+          const from = [...this.cryptTake].map((cid) => this.el.overlay.querySelector(`.card[data-id="${cid}"]`)).filter(Boolean).map((n) => n.getBoundingClientRect());
           const res = g.resolveCrypt([...this.cryptTake], [...this.discard].filter((cid) => g.hand.some((c) => c.id === cid)));
           if (!res.ok) return this.toast(res.error);
           this.track('special', { kind: 'crypt', cards: res.cards.length });
           this.sound('ding');
           this.resetOverlayState();
+          this.skipDeckBump = this.fxOn;
           this.renderAll();
+          this.deckGainFx(res.cards, from.length ? from : this.pileRect(1));
           this.toastOk(`A cripta devolve ao deck: ${res.cards.map(label).join(', ')}.`);
           break;
         }
@@ -1841,12 +2173,16 @@
           break;
         case 'table-go': {
           const cardId = [...this.discard].find((cid) => g.hand.some((c) => c.id === cid));
+          const modal = this.el.overlay.querySelector('.modal');
+          const from = modal ? modal.getBoundingClientRect() : null;
           const res = g.resolveTable(cardId);
           if (!res.ok) return this.toast(res.error);
           this.track('special', { kind: 'table', outcome: res.outcome, rank: res.bet.rank });
           this.sound(res.outcome === 'lose' ? 'creak' : 'ding', res.outcome === 'lose' ? 0.3 : undefined);
           this.resetOverlayState();
+          this.skipDeckBump = this.fxOn && res.outcome === 'win';
           this.renderAll();
+          if (res.outcome === 'win' && from) this.deckGainFx(res.cards, { left: from.left + from.width / 2 - 35, top: from.top + from.height / 2 - 50, width: 70, height: 98 });
           const text = {
             win: `Você ganha! ${label(res.bet)} contra ${label(res.house)} da casa: ${res.cards.length} cartas novas entram no deck.`,
             tie: `Empate: ${label(res.bet)} contra ${label(res.house)} da casa. Sua carta volta para a mão.`,
@@ -1886,9 +2222,16 @@
           this.renderOverlay();
           break;
         case 'confirm-chest': {
+          // As cartas levadas vão do popup para a MÃO: cada uma sai de onde estava na janela do baú.
+          const from = new Map();
+          for (const id of this.picks) {
+            const n = this.el.overlay.querySelector(`.card[data-id="${id}"]`);
+            if (n) from.set(id, n.getBoundingClientRect());
+          }
           const res = g.resolveChest([...this.picks], [...this.discard]);
           if (!res.ok) return this.toast(res.error);
           this.resetOverlayState();
+          this.fxEnter = from;
           this.renderAll();
           break;
         }
@@ -2003,13 +2346,14 @@
       this.fxBumpDelay = null;
       if (this.fxOn && this.lastCounts) {
         counts.forEach((n, i) => {
-          if (n === this.lastCounts[i]) return;
+          if (n === this.lastCounts[i] || (i === 0 && this.skipDeckBump)) return;
           const pileEl = this.el.piles.children[i];
           pileEl.classList.add('bump');
           pileEl.style.setProperty('--bd', `${delays[i]}s`);
         });
       }
       this.lastCounts = counts;
+      this.skipDeckBump = false;
       this.el.piles.children[0].classList.toggle('low', lowDeck);
       // Uma batida de coração só na hora em que o deck fica perigosamente baixo.
       if (lowDeck && !this.lowDeckOn) this.sound('heartbeat');
@@ -2125,7 +2469,9 @@
         this.ring(c.x, c.y, WELL_WATER[res.look]);
         this.burst(c.x, c.y, { count: 16, color: WELL_WATER[res.look], spread: 60 });
       }
+      if (res.effect === 'deck' && this.fxOn) this.skipDeckBump = true;
       this.renderAll();
+      if (res.effect === 'deck') this.deckGainFx(res.cards, tile.getBoundingClientRect());
       this.toastOk(`Poço de água ${res.look}: ${text}.`);
     }
 
@@ -2506,6 +2852,7 @@
         } else node = next;
         node.style.setProperty('--i', i);
         node.style.setProperty('--n', g.hand.length);
+        if (i < 9) node.insertAdjacentHTML('beforeend', `<span class="kbd-n">${i + 1}</span>`);
         return node;
       });
 
@@ -2523,7 +2870,9 @@
       this.fxDrawStep = 0;
       const source = this.fxEnter;
       this.fxEnter = null;
-      const deck = fx ? source || this.pileRect(0) : null;
+      // De onde cada carta nova chega à mão: do retângulo dela na janela (um por id), de um só lugar (slot) ou da pilha do deck.
+      const fallback = fx ? this.pileRect(0) : null;
+      const deckFor = (id) => (!fx ? null : source instanceof Map ? source.get(id) || fallback : source || fallback);
       let drawn = 0;
       for (const node of nodes) {
         const was = before.get(node.dataset.id);
@@ -2532,7 +2881,8 @@
         } else if (!old.has(node.dataset.id)) {
           const delay = drawn++ * (step || 90);
           this.sound('draw', delay / 1000 + (fx ? 0.05 : 0));
-          if (deck) this.flyIn(node, deck, delay);
+          const from = deckFor(node.dataset.id);
+          if (from) this.flyIn(node, from, delay);
         }
       }
     }
@@ -2585,7 +2935,7 @@
         const others = g.hand.filter((c) => c.id !== joker.id);
         if (!others.length) continue;
         const current = g.jokerTarget(joker);
-        html += `<div class="joker-choice"><span>${label(joker)} vale:</span><div class="joker-btns"><button class="btn small ${current ? '' : 'on'}" data-joker="${joker.id}" data-target="">${joker.rank} (própria)</button></div><span>ou copia:</span><div class="joker-btns">${others
+        html += `<div class="joker-choice"><span>${label(joker)} vale:<kbd>J</kbd></span><div class="joker-btns"><button class="btn small ${current ? '' : 'on'}" data-joker="${joker.id}" data-target="">${joker.rank} (própria)</button></div><span>ou copia:</span><div class="joker-btns">${others
           .map((o) => `<button class="btn small ${current && current.id === o.id ? 'on' : ''}" data-joker="${joker.id}" data-target="${o.id}">${label(o)}</button>`)
           .join('')}</div></div>`;
       }
@@ -2602,13 +2952,13 @@
         const n = this.powerCount(c);
         const what = `Comprar ${n} carta${n === 1 ? '' : 's'}`;
         body = `<button class="btn power-btn red" data-act="power" ${n ? '' : 'disabled'} title="${what}">
-          <b>${sym(c.suit)}</b><span>Usar poder</span><small>${n ? what : 'sem efeito agora'}</small></button>`;
+          <b>${sym(c.suit)}</b><span>Usar poder<kbd>P</kbd></span><small>${n ? what : 'sem efeito agora'}</small></button>`;
       } else if (c && c.suit === 'D') {
         const full = g.mana >= g.manaMax();
         const gain = Math.min(g.cardValue(c), g.manaMax() - g.mana);
         const what = full ? 'Mana cheia' : `Ganhar ${gain} de mana (${g.mana} → ${g.mana + gain})`;
         body = `<button class="btn power-btn gold" data-act="power" ${full ? 'disabled' : ''} title="${what}">
-          <b>${sym(c.suit)}</b><span>Virar mana</span><small>${what}</small></button>`;
+          <b>${sym(c.suit)}</b><span>Virar mana<kbd>P</kbd></span><small>${what}</small></button>`;
       } else if (cards.some((x) => x.suit === 'C') && this.jokerHTML(cards)) {
         body = `<div class="power-joker">${this.jokerHTML(cards)}</div>`;
       } else {
@@ -3560,6 +3910,8 @@
 
       root.hidden = !html;
       root.innerHTML = html;
+      if (html && this.overlayFresh) this.kbdIdx = 0;
+      if (html) this.markKbd();
       if (kind === 'report') root.querySelector('textarea').select();
       if (!html || !this.overlayFresh) return;
       root.querySelector('.modal').classList.add('enter');
@@ -3816,10 +4168,10 @@
           const n = coversLeft(enemy, c);
           html = `<div class="card back dungeon enemy-card locked" data-ov="hidden-card" data-id="${c.id}" title="Carta travada: sai da frente dela primeiro"><span class="badge lock">🔒 ${n} na frente</span></div>`;
         } else {
-          const state = this.targets.has(c.id) ? ` target${exact ? ' exact' : ''}` : '';
+          const state = (this.targets.has(c.id) ? ` target${exact ? ' exact' : ''}` : '');
           html = cardHTML(c, { extra: `enemy-card${state}${flipped.includes(c.id) ? ' flip' : ''}` }).replace('class="card', 'data-ov="attack" class="card');
         }
-        return `<div class="board-slot">${html}</div>`;
+        return `<div class="board-slot${this.foeCursor === c.id && !enemy.down.includes(c.id) ? ' kbd-cursor' : ''}">${html}</div>`;
       };
       // A fila da frente fica por último (embaixo, em cima das de trás).
       const board = [...rows]
@@ -3862,9 +4214,9 @@
         status,
         ability: this.abilityHTML(enemy),
         adjust: adj ? `<div class="cs-box"><h4>Ajustar a carta escolhida</h4><div class="cs-adj">${adj}</div></div>` : '',
-        actions: `<button class="btn primary cs-btn" data-ov="attack-go" ${exact ? '' : 'disabled'}><b>Derrubar</b><small>${attack}</small></button>
-          <button class="btn cs-btn${canTrade ? ' danger' : ''}" data-ov="trade-go" ${canTrade ? '' : 'disabled'} title="Preso? Troque 1 carta da mão por 1 carta aberta do inimigo de valor diferente: a diferença queima cartas do seu deck."><b>${canTrade ? `Trocar · dano ${damage}` : 'Trocar 1 por 1'}</b><small>${trade}</small></button>
-          ${enemy.boss ? '' : `<button class="btn cs-btn${last && pick ? ' danger' : ''}" data-ov="flee" ${pick ? '' : 'disabled'}><b>Fugir</b><small>${flee}</small></button>`}
+        actions: `<button class="btn primary cs-btn" data-ov="attack-go" ${exact ? '' : 'disabled'}><b>Derrubar<kbd>Enter</kbd></b><small>${attack}</small></button>
+          <button class="btn cs-btn${canTrade ? ' danger' : ''}" data-ov="trade-go" ${canTrade ? '' : 'disabled'} title="Preso? Troque 1 carta da mão por 1 carta aberta do inimigo de valor diferente: a diferença queima cartas do seu deck."><b>${canTrade ? `Trocar · dano ${damage}` : 'Trocar 1 por 1'}<kbd>T</kbd></b><small>${trade}</small></button>
+          ${enemy.boss ? '' : `<button class="btn cs-btn${last && pick ? ' danger' : ''}" data-ov="flee" ${pick ? '' : 'disabled'}><b>Fugir<kbd>X</kbd></b><small>${flee}</small></button>`}
           <button class="btn link cs-clear" data-act="clear" ${cards.length || marked.length ? '' : 'disabled'}>Limpar seleção</button>`,
       };
     }
@@ -3995,8 +4347,8 @@
         <p>Toque numa carta para escolher (toque de novo para soltar). Toque numa casa para <b>andar até lá</b> (andar é de graça). Toque numa porta ou baú ao seu lado para abrir; se estiver longe, o personagem vai até ao lado dela. <b>Arraste o mapa com o dedo</b> para olhar outras salas; o botão ◎ volta para o personagem.</p>
         <h4>Salas novas</h4>
         <p>Ao <b>descer de andar</b> você ganha ${this.game.config.refillDraw} carta do seu deck, sem passar do limite de ${this.game.config.handMax} na mão: ela aparece de costas e vira. Abrir a porta de uma sala nova <b>não dá carta por si só</b>: só ganha cartas quem abre com <b>soma exata</b> (${this.game.config.exactBonus}, ou ${this.game.config.flushBonus} com 2 ou mais cartas do mesmo naipe), que viram numa janelinha antes de entrar na sala.</p>
-        <h4>Atalhos</h4>
-        <p>Setas andam um passo; teclas 1–5 selecionam cartas da mão; Esc limpa a seleção; F liga/desliga a névoa; E liga/desliga os efeitos; M liga/desliga o som; A alterna a arte de pixel art; + e − aproximam e afastam o mapa; C centraliza no personagem.</p>
+        <h4>Atalhos (jogar sem o mouse)</h4>
+        <p><b>Mapa:</b> <b>setas</b> andam um passo; <b>Shift + seta</b> corre em linha reta; seta na direção de uma <b>porta, baú ou objeto</b> ao lado abre ou usa (com as cartas escolhidas); <b>Enter</b> ou <b>Espaço</b> faz o mesmo quando só há uma coisa ao lado. <b>1 a 9</b> escolhem cartas da mão (o número aparece em cima de cada uma); <b>Esc</b> limpa a escolha. <b>P</b> usa o poder (♥ compra, ♦ vira mana), <b>J</b> passa pelas escolhas do coringa ♣, <b>S</b> guarda a carta escolhida no inventário, <b>D</b> devolve uma guardada, <b>, e .</b> dão −1 e +1 (anel ou pergaminho de Precisão e do Ladrão), <b>N</b> usa o anel de naipe, <b>G</b> abre o cemitério, <b>H</b> abre estas regras. <b>Combate:</b> <b>← →</b> escolhem a carta aberta do inimigo, <b>Espaço</b> marca, <b>Enter</b> derruba, <b>T</b> troca 1 por 1 e <b>X</b> foge. <b>Janelas:</b> <b>1 a 9</b> ou <b>← →</b> escolhem, <b>Espaço</b> marca o item do cursor, <b>Enter</b> confirma o botão principal e <b>Esc</b> deixa para trás ou fecha. <b>Outros:</b> F liga/desliga a névoa, E os efeitos, M o som, A alterna a arte, + e − aproximam e afastam o mapa, C centraliza no personagem.</p>
         ${this.artAvailable ? '<p class="muted">Arte do mapa, dos inimigos e do herói: pixel art de <b>Pixel_Poem</b> (pixel-poem.itch.io).</p>' : ''}
         <div class="actions"><button class="btn primary" data-ov="close-help">Entendi</button></div>
       </div>`;
