@@ -759,6 +759,8 @@
           cand.started = true;
           const ghost = htmlToEl(cardHTML(card, { extra: 'static' }));
           ghost.classList.add('drag-ghost');
+          const at = this.game.locate(card.id);
+          cand.size = at ? at.col.length : 1; // quantas cartas o slot dela tem: entre a mão e o inventário vão todas, como um grupo
           document.body.appendChild(ghost);
           cand.ghost = ghost;
           cand.src.classList.add('drag-src');
@@ -771,6 +773,9 @@
         g.style.top = `${e.clientY}px`;
         clearMarks();
         const t = targetAt(e.clientX, e.clientY);
+        const crossing = t && (cand.from === 'hand' ? t.kind === 'slot' : t.kind !== 'slot');
+        g.classList.toggle('group', Boolean(crossing && cand.size > 1));
+        g.dataset.count = `×${cand.size}`;
         if (t && t.el !== cand.src) {
           // Em cima de uma carta que ela pode cobrir (mesmo naipe, 1 a menos), a mira vira "empilhar".
           const onto = t.kind === 'handcard' || (t.kind === 'slot' && t.el.dataset.id) ? this.stackOnto(cand.id, t.el) : null;
@@ -896,10 +901,11 @@
       const full = g.slotsFree() <= 0;
       if (target.kind === 'handcard') {
         const at = colOf(target.el);
-        const res = full ? g.swapStash(target.el.dataset.id, c.id) : g.unstashCard(c.id);
+        const under = this.frontUnder(target.el);
+        const res = full ? g.swapStash(under.id, c.id) : g.unstashCard(c.id);
         if (!res.ok) return this.reject(res.error);
-        if (!full) g.moveHandCard(c.id, at);
-        this.sel = this.sel.filter((id) => id !== (full ? target.el.dataset.id : null));
+        if (!full) g.moveHandCol(c.id, at); // a pilha inteira vai para a posição escolhida
+        this.sel = this.sel.filter((id) => id !== (full ? under.id : null));
         this.fxEnter = rect;
         this.sound('draw');
         return this.renderAll();
@@ -4472,7 +4478,7 @@
           <li><b>♣ Paus:</b> coringa. Vale o próprio número, mas você pode escolher copiar o rank de outra carta da mão.</li>
         </ul>
         <h4>Pilhas na mão</h4>
-        <p>A mão tem <b>${this.game.config.handMax} slots</b> e cada slot guarda uma carta ou uma <b>pilha de até ${this.game.config.stackMax}</b>. Para empilhar, <b>arraste</b> uma carta (a da frente do slot dela) para cima de outra do <b>mesmo naipe</b> que seja <b>maior</b>${this.game.config.stackConsecutive ? ' (exatamente 1 a mais)' : ' (qualquer uma: o 2♠ vai em cima do 5♠, que está em cima do 9♠)'}. A pilha sempre <b>desce</b> do fundo para a frente. Em cada pilha, a carta que fica por último, na <b>frente</b> (a menor), é a <b>livre</b>: ela vale sozinha, ou somada com as de trás dela, <b>sempre de baixo para cima</b> (5♠ + 9♠ valem 14, mas a 9♠ sozinha está <b>presa</b>). Tocar numa carta presa escolhe ela e todas as da frente. Poderes, fuga, altar, mesa, anéis e comida só usam a carta livre; o anel de naipe e a oficina pedem a carta <b>fora da pilha</b>. As cartas novas (compra, baú, sala nova) entram em <b>slots livres</b> e <b>nunca se empilham sozinhas</b>; sem slot livre, nada entra. Para tirar a carta da frente da pilha, arraste-a para um slot livre (tracejado). Empilhar e desempilhar é grátis, a qualquer momento. O inventário também empilha, e dá para empilhar entre a mão e o inventário.</p>
+        <p>A mão tem <b>${this.game.config.handMax} slots</b> e cada slot guarda uma carta ou uma <b>pilha de até ${this.game.config.stackMax}</b>. Para empilhar, <b>arraste</b> uma carta (a da frente do slot dela) para cima de outra do <b>mesmo naipe</b> que seja <b>maior</b>${this.game.config.stackConsecutive ? ' (exatamente 1 a mais)' : ' (qualquer uma: o 2♠ vai em cima do 5♠, que está em cima do 9♠)'}. A pilha sempre <b>desce</b> do fundo para a frente. Em cada pilha, a carta que fica por último, na <b>frente</b> (a menor), é a <b>livre</b>: ela vale sozinha, ou somada com as de trás dela, <b>sempre de baixo para cima</b> (5♠ + 9♠ valem 14, mas a 9♠ sozinha está <b>presa</b>). Tocar numa carta presa escolhe ela e todas as da frente. Poderes, fuga, altar, mesa, anéis e comida só usam a carta livre; o anel de naipe e a oficina pedem a carta <b>fora da pilha</b>. As cartas novas (compra, baú, sala nova) entram em <b>slots livres</b> e <b>nunca se empilham sozinhas</b>; sem slot livre, nada entra. Para tirar a carta da frente da pilha, arraste-a para um slot livre (tracejado). Empilhar e desempilhar é grátis, a qualquer momento. O inventário também empilha, e dá para empilhar entre a mão e o inventário. Arrastar uma pilha da mão para o inventário (ou de volta) leva o <b>slot inteiro, como um grupo</b>, para um slot só (o arrasto mostra "×3").</p>
         <h4>Anéis e mana</h4>
         <p>Os anéis ficam no dedo (<b>2 espaços</b>). Vêm de <b>baús</b> (metade deles guarda um, e o do <b>andar 1</b> sempre guarda) e de <b>inimigos</b> (os mais difíceis deixam mais). Ao achar um, você escolhe em que espaço vesti-lo, trocando o que estiver lá, ou deixa para trás. <b>Passivos</b> (valem sozinhos): <b>Mão</b> +1 na mão máxima, <b>Deck</b> +1 carta ao abrir sala nova, <b>Comida</b> porta aberta com soma exata põe 1 carta nova no deck, <b>Mago</b> +4 de mana máxima. <b>Ativos</b> (gastam ${this.game.config.ringUseMana} de mana por uso: escolha 1 carta da mão e toque no anel): <b>Ladrão</b> a carta sobe ou desce 1 ao pagar portas e baús, <b>Precisão</b> a carta sobe ou desce 1 em combate (só aquela carta, uma vez; com ♠ o ajuste entra depois do dobro), e os <b>anéis de naipe</b> (♠ ♥ ♦ ♣) viram a carta daquele naipe até ser usada.</p>
         <h4>Grama</h4>

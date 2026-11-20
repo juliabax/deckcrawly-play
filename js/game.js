@@ -1016,40 +1016,39 @@
       return this.status === 'playing';
     }
 
+    // Guarda no inventário o slot inteiro da carta (se ela está numa pilha, a pilha vai junta, como um grupo, para um slot só).
     stashCard(cardId) {
       if (!this.canStore()) return fail('Não dá para guardar cartas agora.');
       const card = this.findFree(cardId);
       if (!card) return fail(this.freeError(cardId, 'Essa carta não está na mão.'));
       if (this.slotsOpen === 0) return fail('Você ainda não tem slots: ache um Pergaminho de Inventário.');
       if (this.stashCols.length >= this.slotsOpen) return fail('Todos os seus slots estão ocupados.');
-      this.hand = this.hand.filter((c) => c !== card);
-      this.stashCols.push([card]);
+      const col = this.colOf(card);
+      this.cols.splice(this.cols.indexOf(col), 1);
+      this.stashCols.push(col);
       this.afterAction();
-      return { ok: true };
+      return { ok: true, count: col.length };
     }
 
-    // Uma carta guardada só é usada depois de voltar para a mão (o limite da mão continua valendo). Sai a da frente do
-    // slot do inventário e ganha um slot livre da mão. Com a mão cheia, `swapId` (uma carta da mão, sozinha no slot)
-    // troca de lugar com a guardada (que também precisa estar sozinha no slot dela).
+    // Uma carta guardada só é usada depois de voltar para a mão (o limite da mão continua valendo). O slot do inventário
+    // inteiro volta (uma pilha vai junta, como um grupo) e ganha um slot livre da mão. Com a mão cheia, `swapId` (uma carta
+    // da frente de um slot da mão) troca de lugar com ele: os dois slots inteiros trocam.
     unstashCard(cardId, swapId = null) {
       if (!this.canStore()) return fail('Não dá para pegar cartas agora.');
       const si = this.stashCols.findIndex((col) => col[col.length - 1].id === cardId);
       if (si < 0) return fail(this.stash.some((c) => c.id === cardId) ? 'Essa carta está presa na pilha do inventário: tire primeiro a da frente.' : 'Essa carta não está guardada.');
       const col = this.stashCols[si];
-      const card = col[col.length - 1];
       if (this.slotsFree() <= 0) {
         const out = swapId ? this.findFree(swapId) : null;
         if (!out) return fail('Sua mão está cheia: marque uma carta da mão para trocar de lugar com a guardada.');
         const hi = this.cols.indexOf(this.colOf(out));
-        if (this.cols[hi].length > 1 || col.length > 1) return fail('Só troca de lugar carta sozinha no slot: tire-a da pilha primeiro.');
-        this.stashCols[si] = [out];
-        this.cols[hi] = [card];
-        return { ok: true, swapped: out };
+        this.stashCols[si] = this.cols[hi];
+        this.cols[hi] = col;
+        return { ok: true, swapped: out, count: col.length };
       }
-      col.pop();
-      if (!col.length) this.stashCols.splice(si, 1);
-      this.cols.push([card]);
-      return { ok: true };
+      this.stashCols.splice(si, 1);
+      this.cols.push(col);
+      return { ok: true, count: col.length };
     }
 
     // Organizar as cartas (arrastar na tela): a ordem dos slots é só de quem joga. Soltar uma carta que está numa pilha
@@ -1080,16 +1079,25 @@
       return { ok: true, moved: true, ejected: true };
     }
 
-    // Troca de lugar uma carta da mão com uma guardada: cada uma fica no slot da outra (as duas sozinhas no slot).
+    // Move o slot inteiro (a pilha toda, como um grupo) da carta para outra posição da mão.
+    moveHandCol(cardId, toIndex) {
+      const from = this.cols.findIndex((col) => col.some((c) => c.id === cardId));
+      if (from < 0) return fail('Essa carta não está na mão.');
+      const [col] = this.cols.splice(from, 1);
+      this.cols.splice(Math.max(0, Math.min(this.cols.length, toIndex)), 0, col);
+      return { ok: true };
+    }
+
+    // Troca de lugar o slot da mão com o do inventário: cada slot inteiro (com a pilha, se tiver) vai para o lugar do outro.
     swapStash(handId, stashId) {
       if (!this.canStore()) return fail('Não dá para trocar cartas agora.');
       const h = this.cols.findIndex((col) => col.some((c) => c.id === handId));
       const s = this.stashCols.findIndex((col) => col.some((c) => c.id === stashId));
       if (h < 0) return fail('Essa carta não está na mão.');
       if (s < 0) return fail('Essa carta não está guardada.');
-      if (this.cols[h].length > 1 || this.stashCols[s].length > 1) return fail('Só troca de lugar carta sozinha no slot: tire-a da pilha primeiro.');
       [this.cols[h], this.stashCols[s]] = [this.stashCols[s], this.cols[h]];
-      return { ok: true, out: this.stashCols[s][0], in: this.cols[h][0] };
+      const front = (col) => col[col.length - 1];
+      return { ok: true, out: front(this.stashCols[s]), in: front(this.cols[h]) };
     }
 
     afterAction() {
