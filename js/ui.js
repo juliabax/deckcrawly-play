@@ -538,17 +538,13 @@
       return [...this.el.overlay.querySelectorAll('.card[data-ov], .btn.offer[data-ov], [data-ov="ring-wear"]')];
     }
 
-    // Marca o item do cursor e numera os 9 primeiros (só se couberem todos).
+    // Marca o item do cursor (só aparece enquanto se usa o teclado).
     markKbd() {
       const items = this.popupItems();
-      for (const n of this.el.overlay.querySelectorAll('.kbd-cursor, .kbd-n')) {
-        n.classList.remove('kbd-cursor');
-        if (n.classList.contains('kbd-n')) n.remove();
-      }
+      for (const n of this.el.overlay.querySelectorAll('.kbd-cursor')) n.classList.remove('kbd-cursor');
       if (!items.length) return;
       this.kbdIdx = Math.min(this.kbdIdx || 0, items.length - 1);
       items[this.kbdIdx].classList.add('kbd-cursor');
-      if (items.length <= 9) items.forEach((n, i) => n.insertAdjacentHTML('beforeend', `<span class="kbd-n">${i + 1}</span>`));
     }
 
     // Teclas dentro das janelas. Devolve verdadeiro se tratou a tecla.
@@ -2852,7 +2848,6 @@
         } else node = next;
         node.style.setProperty('--i', i);
         node.style.setProperty('--n', g.hand.length);
-        if (i < 9) node.insertAdjacentHTML('beforeend', `<span class="kbd-n">${i + 1}</span>`);
         return node;
       });
 
@@ -4348,7 +4343,7 @@
         <h4>Salas novas</h4>
         <p>Ao <b>descer de andar</b> você ganha ${this.game.config.refillDraw} carta do seu deck, sem passar do limite de ${this.game.config.handMax} na mão: ela aparece de costas e vira. Abrir a porta de uma sala nova <b>não dá carta por si só</b>: só ganha cartas quem abre com <b>soma exata</b> (${this.game.config.exactBonus}, ou ${this.game.config.flushBonus} com 2 ou mais cartas do mesmo naipe), que viram numa janelinha antes de entrar na sala.</p>
         <h4>Atalhos (jogar sem o mouse)</h4>
-        <p><b>Mapa:</b> <b>setas</b> andam um passo; <b>Shift + seta</b> corre em linha reta; seta na direção de uma <b>porta, baú ou objeto</b> ao lado abre ou usa (com as cartas escolhidas); <b>Enter</b> ou <b>Espaço</b> faz o mesmo quando só há uma coisa ao lado. <b>1 a 9</b> escolhem cartas da mão (o número aparece em cima de cada uma); <b>Esc</b> limpa a escolha. <b>P</b> usa o poder (♥ compra, ♦ vira mana), <b>J</b> passa pelas escolhas do coringa ♣, <b>S</b> guarda a carta escolhida no inventário, <b>D</b> devolve uma guardada, <b>, e .</b> dão −1 e +1 (anel ou pergaminho de Precisão e do Ladrão), <b>N</b> usa o anel de naipe, <b>G</b> abre o cemitério, <b>H</b> abre estas regras. <b>Combate:</b> <b>← →</b> escolhem a carta aberta do inimigo, <b>Espaço</b> marca, <b>Enter</b> derruba, <b>T</b> troca 1 por 1 e <b>X</b> foge. <b>Janelas:</b> <b>1 a 9</b> ou <b>← →</b> escolhem, <b>Espaço</b> marca o item do cursor, <b>Enter</b> confirma o botão principal e <b>Esc</b> deixa para trás ou fecha. <b>Outros:</b> F liga/desliga a névoa, E os efeitos, M o som, A alterna a arte, + e − aproximam e afastam o mapa, C centraliza no personagem.</p>
+        <p><b>Mapa:</b> <b>setas</b> andam um passo; <b>Shift + seta</b> corre em linha reta; seta na direção de uma <b>porta, baú ou objeto</b> ao lado abre ou usa (com as cartas escolhidas); <b>Enter</b> ou <b>Espaço</b> faz o mesmo quando só há uma coisa ao lado. <b>1 a 9</b> escolhem cartas da mão <b>Esc</b> limpa a escolha. <b>P</b> usa o poder (♥ compra, ♦ vira mana), <b>J</b> passa pelas escolhas do coringa ♣, <b>S</b> guarda a carta escolhida no inventário, <b>D</b> devolve uma guardada, <b>, e .</b> dão −1 e +1 (anel ou pergaminho de Precisão e do Ladrão), <b>N</b> usa o anel de naipe, <b>G</b> abre o cemitério, <b>H</b> abre estas regras. <b>Combate:</b> <b>← →</b> escolhem a carta aberta do inimigo, <b>Espaço</b> marca, <b>Enter</b> derruba, <b>T</b> troca 1 por 1 e <b>X</b> foge. <b>Janelas:</b> <b>1 a 9</b> ou <b>← →</b> escolhem, <b>Espaço</b> marca o item do cursor, <b>Enter</b> confirma o botão principal e <b>Esc</b> deixa para trás ou fecha. <b>Outros:</b> F liga/desliga a névoa, E os efeitos, M o som, A alterna a arte, + e − aproximam e afastam o mapa, C centraliza no personagem.</p>
         ${this.artAvailable ? '<p class="muted">Arte do mapa, dos inimigos e do herói: pixel art de <b>Pixel_Poem</b> (pixel-poem.itch.io).</p>' : ''}
         <div class="actions"><button class="btn primary" data-ov="close-help">Entendi</button></div>
       </div>`;
