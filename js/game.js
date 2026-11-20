@@ -3,7 +3,8 @@
 
   const DEFAULT_CONFIG = {
     floors: 5,
-    handMax: 5,
+    handMax: 5, // slots da mão: cada slot guarda uma carta ou uma pilha (stackMax)
+    stackMax: 3, // cartas por pilha: mesmo naipe, cada uma exatamente 1 menor que a de baixo; só se usa a da frente (a menor)
     chestOptions: 5,
     chestPicks: 2,
     bossFormation: [3, 2, 3, 2], // o chefão da sala final: cartas por fila, da frente (aberta) para o fundo (travadas)
@@ -112,6 +113,15 @@
   const TUTORIAL2_ENEMY = ['dS5', 'dH3']; // as duas à vista: dá para derrubar as duas de uma vez com um ♠
 
   const fail = (error) => ({ ok: false, error });
+
+  // Slots (pilhas) depois de a lista de cartas mudar: some o que saiu, o que chegou ganha um slot só dele no fim.
+  function regroup(cols, list) {
+    const keep = new Set(list);
+    const out = (cols || []).map((col) => col.filter((c) => keep.has(c))).filter((col) => col.length);
+    const have = new Set(out.flat());
+    for (const c of list) if (!have.has(c)) out.push([c]);
+    return out;
+  }
   // Janelas das salas especiais que se fecham sem gastar nada (o poço age na hora, não tem janela).
   const SPECIAL_WINDOWS = ['altar', 'library', 'crypt', 'table', 'forge'];
 
@@ -131,10 +141,10 @@
       // Dois decks separados: o do jogador (vida + mão) e o da dungeon.
       this.playerDeck = this.rng.shuffle(DC.makeDeck('p'));
       this.dungeonDeck = this.rng.shuffle(DC.makeDeck('d'));
-      this.hand = [];
+      this.cols = []; // os slots da mão: cada um é uma pilha [fundo, ..., frente]; só a da frente (a última) é "livre"
+      this.stashCols = []; // os slots do inventário, na mesma forma
       this.discard = [];
       this.slotsOpen = Math.min(this.config.startSlots, this.config.maxSlots); // slots liberados: o de brinde mais os dos pergaminhos (até maxSlots)
-      this.stash = []; // cartas guardadas nos slots
       this.jokerCopy = {};
 
       // Experimento Rogue: bolsa de itens de uso único, com aparência sorteada por seed e só descoberta ao usar.
@@ -214,7 +224,7 @@
     // Tutorial: mão combinada, o andar fixo e uma porta que custa 7 (dá para pagar com 3+4 ou 5+2).
     arrangeTutorial() {
       const take = (deck, id) => deck.splice(deck.findIndex((c) => c.id === id), 1)[0];
-      for (const id of TUTORIAL_HAND) this.hand.push(take(this.playerDeck, id));
+      for (const id of TUTORIAL_HAND) this.cols.push([take(this.playerDeck, id)]);
       const cost = take(this.dungeonDeck, TUTORIAL_DOOR);
       const foe = TUTORIAL2_ENEMY.map((id) => take(this.dungeonDeck, id));
       this.floors = [DC.tutorialFloor(cost), DC.tutorialFloor2(foe)];
@@ -224,10 +234,10 @@
     // como a pessoa jogou o andar 1): mão curta, descarte com o que o ♥ devolver e as cartas certas no topo.
     arrangeTutorialFloor2() {
       const all = [...this.hand, ...this.playerDeck, ...this.discard, ...this.stash];
-      this.stash = [];
+      this.stashCols = [];
       this.jokerCopy = {};
       const take = (id) => all.splice(all.findIndex((c) => c.id === id), 1)[0];
-      this.hand = TUTORIAL2_HAND.map(take);
+      this.cols = TUTORIAL2_HAND.map((id) => [take(id)]);
       const top = TUTORIAL2_TOP.map(take);
       this.discard = TUTORIAL2_DISCARD.map(take);
       this.playerDeck = [...all, ...top.reverse()]; // o fim da lista é o topo do deck
@@ -239,13 +249,108 @@
 
     // ---------- decks ----------
 
+    // Compra para slots livres da mão (cada carta nova ocupa um slot só dela; nada se empilha sozinho).
     draw(count) {
       let drawn = 0;
-      while (drawn < count && this.hand.length < this.handLimit() && this.playerDeck.length) {
-        this.hand.push(this.playerDeck.pop());
+      while (drawn < count && this.slotsFree() > 0 && this.playerDeck.length) {
+        this.cols.push([this.playerDeck.pop()]);
         drawn++;
       }
       return drawn;
+    }
+
+    // ---------- slots da mão e do inventário: cada slot é uma pilha ----------
+    //
+    // `hand` e `stash` seguem existindo como listas simples de cartas (a ordem dos slots, do fundo para a frente de cada
+    // pilha) para quem só quer olhar ou tirar cartas; atribuir (`this.hand = this.hand.filter(...)`) tira o que sumiu e põe
+    // o que chegou, cada um no seu slot. Para pilhas de verdade, use `cols` e `stashCols`.
+
+    get hand() {
+      return this.cols.flat();
+    }
+
+    set hand(list) {
+      this.cols = regroup(this.cols, list);
+    }
+
+    get stash() {
+      return this.stashCols.flat();
+    }
+
+    set stash(list) {
+      this.stashCols = regroup(this.stashCols, list);
+    }
+
+    slotsFree() {
+      return Math.max(0, this.handLimit() - this.cols.length);
+    }
+
+    // Quantos slots a mão ocupa depois de tirar `cards` e pôr `added` cartas novas (cada uma num slot).
+    slotsAfter(cards, added = 0) {
+      return this.cols.filter((col) => col.some((c) => !cards.includes(c))).length + added;
+    }
+
+    colOf(card) {
+      return this.cols.find((col) => col.includes(card)) || null;
+    }
+
+    // A carta da frente da pilha (a menor) é a única que dá para usar sozinha.
+    isFree(card) {
+      const col = this.colOf(card);
+      return Boolean(col) && col[col.length - 1] === card;
+    }
+
+    freeCards() {
+      return this.cols.map((col) => col[col.length - 1]);
+    }
+
+    // A carta da mão que dá para usar (a da frente do slot), ou null.
+    findFree(id) {
+      const card = this.hand.find((c) => c.id === id);
+      return card && this.isFree(card) ? card : null;
+    }
+
+    // Por que uma carta da mão não serve: não está na mão, ou está presa embaixo de outras.
+    freeError(id, missing) {
+      return this.hand.some((c) => c.id === id) ? 'Essa carta está presa na pilha: use primeiro as que estão na frente dela.' : missing;
+    }
+
+    // Procura uma carta nos slots da mão ou do inventário.
+    locate(id) {
+      for (const [zone, cols] of [['hand', this.cols], ['stash', this.stashCols]]) {
+        const col = cols.find((k) => k.some((c) => c.id === id));
+        if (col) return { zone, cols, col, card: col.find((c) => c.id === id) };
+      }
+      return null;
+    }
+
+    // Por que `card` não pode ir para cima de `onto` (ou null se pode): mesmo naipe, exatamente 1 a menos e a carta
+    // de baixo tem que ser a da frente da pilha dela, que não pode estar cheia.
+    stackError(card, onto) {
+      if (card === onto) return 'Escolha outra carta para empilhar.';
+      if (card.suit !== onto.suit) return 'Só empilha carta do mesmo naipe.';
+      if (card.rank !== onto.rank - 1) return `Precisa ser ${DC.rankLabel(onto.rank - 1)}${DC.SUIT_SYMBOL[onto.suit]}: a pilha desce de 1 em 1.`;
+      return null;
+    }
+
+    // Empilha `cardId` (que precisa ser a da frente do slot dela, na mão ou no inventário) em cima de `ontoId` (a da frente
+    // de outro slot, também na mão ou no inventário). É grátis e vale a qualquer momento, como guardar no inventário.
+    stackCard(cardId, ontoId) {
+      if (!this.canStore()) return fail('Não dá para empilhar cartas agora.');
+      const from = this.locate(cardId);
+      const to = this.locate(ontoId);
+      if (!from || !to) return fail('Essa carta não está na mão nem no inventário.');
+      if (from.col === to.col) return fail('Escolha outra carta para empilhar.');
+      if (from.col[from.col.length - 1] !== from.card) return fail('Só dá para mover a carta da frente da pilha.');
+      if (to.col[to.col.length - 1] !== to.card) return fail('Só dá para empilhar em cima da carta da frente da pilha.');
+      const err = this.stackError(from.card, to.card);
+      if (err) return fail(err);
+      if (to.col.length >= this.config.stackMax) return fail(`A pilha já tem ${this.config.stackMax} cartas.`);
+      from.col.pop();
+      if (!from.col.length) from.cols.splice(from.cols.indexOf(from.col), 1);
+      to.col.push(from.card);
+      this.pruneJokers();
+      return { ok: true, card: from.card, onto: to.card, zone: to.zone, size: to.col.length };
     }
 
     dungeonDraw() {
@@ -798,9 +903,10 @@
       if (!def || (!def.suit && !def.use)) return fail('Esse anel não precisa ser usado: ele vale enquanto está no dedo.');
       const cost = this.config.ringUseMana;
       if (this.mana < cost) return fail(`Falta mana: o anel custa ${cost} e você tem ${this.mana}. Descarte um ♦ para ganhar mana.`);
-      const card = this.hand.find((c) => c.id === cardId);
-      if (!card) return fail('Escolha 1 carta da mão para o anel.');
+      const card = this.findFree(cardId);
+      if (!card) return fail(this.freeError(cardId, 'Escolha 1 carta da mão para o anel.'));
       if (def.suit) {
+        if (this.colOf(card).length > 1) return fail('Tire a carta da pilha antes de mudar o naipe dela.');
         if (card.suit === def.suit) return fail(`Essa carta já é de ${DC.SUIT_SYMBOL[def.suit]}.`);
         const old = DC.SUIT_SYMBOL[card.suit];
         card.suit = def.suit;
@@ -847,6 +953,8 @@
       return { ok: true, replaced };
     }
 
+    // As cartas da mão escolhidas, ou null se alguma não existe ou está presa: de cada pilha só dá para usar a carta da
+    // frente, ou ela junto com as de trás dela em sequência (de baixo para cima).
     handCards(ids) {
       const cards = [];
       for (const id of ids) {
@@ -854,7 +962,17 @@
         if (!card || cards.includes(card)) return null;
         cards.push(card);
       }
+      for (const col of this.cols) {
+        const k = col.filter((c) => cards.includes(c)).length;
+        if (k && !col.slice(col.length - k).every((c) => cards.includes(c))) return null;
+      }
       return cards;
+    }
+
+    // A mensagem certa para uma escolha que `handCards` recusou.
+    badPick(ids) {
+      const all = ids.map((id) => this.hand.find((c) => c.id === id));
+      return all.length && all.every(Boolean) ? 'Só dá para usar a carta da frente da pilha (ou ela com as de trás, em sequência).' : 'Escolha cartas da mão.';
     }
 
     selectionSum(ids) {
@@ -886,7 +1004,7 @@
     // Uma carta congelada (Gelo) não conta: se só sobrou ela, não há o que fazer no combate.
     hasAnyAction() {
       const frozen = this.pending && this.pending.type === 'combat' ? this.pending.frozen : null;
-      return this.hand.some((c) => c.id !== frozen) || this.stash.length > 0;
+      return this.freeCards().some((c) => c.id !== frozen) || this.stashCols.length > 0;
     }
 
     // ---------- inventário (slots do pergaminho) ----------
@@ -898,65 +1016,78 @@
 
     stashCard(cardId) {
       if (!this.canStore()) return fail('Não dá para guardar cartas agora.');
-      const card = this.hand.find((c) => c.id === cardId);
-      if (!card) return fail('Essa carta não está na mão.');
+      const card = this.findFree(cardId);
+      if (!card) return fail(this.freeError(cardId, 'Essa carta não está na mão.'));
       if (this.slotsOpen === 0) return fail('Você ainda não tem slots: ache um Pergaminho de Inventário.');
-      if (this.stash.length >= this.slotsOpen) return fail('Todos os seus slots estão ocupados.');
+      if (this.stashCols.length >= this.slotsOpen) return fail('Todos os seus slots estão ocupados.');
       this.hand = this.hand.filter((c) => c !== card);
-      this.stash.push(card);
+      this.stashCols.push([card]);
       this.afterAction();
       return { ok: true };
     }
 
-    // Uma carta guardada só é usada depois de voltar para a mão (o limite da mão continua valendo).
-    // Com a mão cheia, `swapId` (uma carta da mão) troca de lugar com a guardada: ela vai para o mesmo slot.
+    // Uma carta guardada só é usada depois de voltar para a mão (o limite da mão continua valendo). Sai a da frente do
+    // slot do inventário e ganha um slot livre da mão. Com a mão cheia, `swapId` (uma carta da mão, sozinha no slot)
+    // troca de lugar com a guardada (que também precisa estar sozinha no slot dela).
     unstashCard(cardId, swapId = null) {
       if (!this.canStore()) return fail('Não dá para pegar cartas agora.');
-      const card = this.stash.find((c) => c.id === cardId);
-      if (!card) return fail('Essa carta não está guardada.');
-      if (this.hand.length >= this.handLimit()) {
-        const out = swapId ? this.hand.find((c) => c.id === swapId) : null;
+      const si = this.stashCols.findIndex((col) => col[col.length - 1].id === cardId);
+      if (si < 0) return fail(this.stash.some((c) => c.id === cardId) ? 'Essa carta está presa na pilha do inventário: tire primeiro a da frente.' : 'Essa carta não está guardada.');
+      const col = this.stashCols[si];
+      const card = col[col.length - 1];
+      if (this.slotsFree() <= 0) {
+        const out = swapId ? this.findFree(swapId) : null;
         if (!out) return fail('Sua mão está cheia: marque uma carta da mão para trocar de lugar com a guardada.');
-        this.stash[this.stash.indexOf(card)] = out;
-        this.hand = this.hand.filter((c) => c !== out);
-        this.hand.push(card);
+        const hi = this.cols.indexOf(this.colOf(out));
+        if (this.cols[hi].length > 1 || col.length > 1) return fail('Só troca de lugar carta sozinha no slot: tire-a da pilha primeiro.');
+        this.stashCols[si] = [out];
+        this.cols[hi] = [card];
         return { ok: true, swapped: out };
       }
-      this.stash = this.stash.filter((c) => c !== card);
-      this.hand.push(card);
+      col.pop();
+      if (!col.length) this.stashCols.splice(si, 1);
+      this.cols.push([card]);
       return { ok: true };
     }
 
-    // Organizar as cartas (arrastar na tela): a ordem da mão e a do inventário são só de quem joga, não mudam nenhuma regra.
+    // Organizar as cartas (arrastar na tela): a ordem dos slots é só de quem joga. Soltar uma carta que está numa pilha
+    // (a da frente) num lugar da mão tira ela da pilha para um slot livre. `toIndex` é a posição entre os slots.
     moveHandCard(cardId, toIndex) {
-      const from = this.hand.findIndex((c) => c.id === cardId);
-      if (from < 0) return fail('Essa carta não está na mão.');
-      const to = Math.max(0, Math.min(this.hand.length - 1, toIndex));
-      if (to === from) return { ok: true, moved: false };
-      const [card] = this.hand.splice(from, 1);
-      this.hand.splice(to, 0, card);
-      return { ok: true, moved: true };
+      return this.moveInCols(this.cols, cardId, toIndex, 'mão', this.handLimit());
     }
 
     moveStash(cardId, toIndex) {
-      const from = this.stash.findIndex((c) => c.id === cardId);
-      if (from < 0) return fail('Essa carta não está guardada.');
-      const to = Math.max(0, Math.min(this.stash.length - 1, toIndex));
-      if (to === from) return { ok: true, moved: false };
-      const [card] = this.stash.splice(from, 1);
-      this.stash.splice(to, 0, card);
-      return { ok: true, moved: true };
+      return this.moveInCols(this.stashCols, cardId, toIndex, 'inventário', this.slotsOpen);
     }
 
-    // Troca de lugar uma carta da mão com uma guardada: cada uma fica na posição da outra.
+    moveInCols(cols, cardId, toIndex, name, limit) {
+      const from = cols.findIndex((col) => col.some((c) => c.id === cardId));
+      if (from < 0) return fail(`Essa carta não está ${name === 'mão' ? 'na mão' : 'guardada'}.`);
+      const col = cols[from];
+      if (col[col.length - 1].id !== cardId) return fail('Só dá para mover a carta da frente da pilha.');
+      if (col.length === 1) {
+        const to = Math.max(0, Math.min(cols.length - 1, toIndex));
+        if (to === from) return { ok: true, moved: false };
+        cols.splice(from, 1);
+        cols.splice(to, 0, col);
+        return { ok: true, moved: true };
+      }
+      if (cols.length >= limit) return fail(`Sem slot livre ${name === 'mão' ? 'na mão' : 'no inventário'} para tirar a carta da pilha.`);
+      const card = col.pop();
+      cols.splice(Math.max(0, Math.min(cols.length, toIndex)), 0, [card]);
+      return { ok: true, moved: true, ejected: true };
+    }
+
+    // Troca de lugar uma carta da mão com uma guardada: cada uma fica no slot da outra (as duas sozinhas no slot).
     swapStash(handId, stashId) {
       if (!this.canStore()) return fail('Não dá para trocar cartas agora.');
-      const h = this.hand.findIndex((c) => c.id === handId);
-      const s = this.stash.findIndex((c) => c.id === stashId);
+      const h = this.cols.findIndex((col) => col.some((c) => c.id === handId));
+      const s = this.stashCols.findIndex((col) => col.some((c) => c.id === stashId));
       if (h < 0) return fail('Essa carta não está na mão.');
       if (s < 0) return fail('Essa carta não está guardada.');
-      [this.hand[h], this.stash[s]] = [this.stash[s], this.hand[h]];
-      return { ok: true, out: this.stash[s], in: this.hand[h] };
+      if (this.cols[h].length > 1 || this.stashCols[s].length > 1) return fail('Só troca de lugar carta sozinha no slot: tire-a da pilha primeiro.');
+      [this.cols[h], this.stashCols[s]] = [this.stashCols[s], this.cols[h]];
+      return { ok: true, out: this.stashCols[s][0], in: this.cols[h][0] };
     }
 
     afterAction() {
@@ -1149,7 +1280,7 @@
       this.hunger = 0;
       let card = this.playerDeck.pop();
       if (!card && this.hand.length) {
-        card = this.hand.reduce((low, c) => (c.rank < low.rank ? c : low));
+        card = this.freeCards().reduce((low, c) => (c.rank < low.rank ? c : low));
         this.hand = this.hand.filter((c) => c !== card);
       }
       if (!card) return;
@@ -1275,7 +1406,7 @@
       // Baú destrancado (grátis): abre sem gastar cartas.
       const free = target.kind === 'chest' && Boolean(target.obj.free);
       const cards = free ? [] : this.handCards(cardIds);
-      if (!free && (!cards || !cards.length)) return fail('Escolha cartas da mão.');
+      if (!free && (!cards || !cards.length)) return fail(this.badPick(cardIds));
 
       const cost = target.obj.cost.rank;
       const sum = free ? 0 : this.payTotal(cardIds);
@@ -1363,15 +1494,15 @@
       if (picks.some((c) => !c) || new Set(pickIds).size !== pickIds.length) return fail('Escolha inválida.');
       if (picks.length > this.config.chestPicks) return fail(`Escolha no máximo ${this.config.chestPicks}.`);
       const discards = this.handCards(discardIds);
-      if (!discards) return fail('Descarte inválido.');
-      if (this.hand.length - discards.length + picks.length > this.handLimit()) {
+      if (!discards) return fail('Descarte inválido: de uma pilha só sai a carta da frente (ou ela com as de trás, em sequência).');
+      if (this.slotsAfter(discards, picks.length) > this.handLimit()) {
         return fail('Mão cheia: descarte cartas para pegar as do baú.');
       }
 
       this.hand = this.hand.filter((c) => !discards.includes(c));
       this.discard.push(...discards);
       this.playerDeck = this.playerDeck.filter((c) => !picks.includes(c));
-      this.hand.push(...picks);
+      for (const c of picks) this.cols.push([c]);
       this.pending = null;
       this.log(
         picks.length ? `Pega ${picks.length} carta(s) do baú; as outras voltam ao deck.` : 'Você deixa as cartas do baú no deck.',
@@ -1384,8 +1515,8 @@
 
     usePower(cardId) {
       if (!this.canAct() && !this.canFight()) return fail('Não dá para usar poderes agora.');
-      const card = this.hand.find((c) => c.id === cardId);
-      if (!card) return fail('Essa carta não está na mão.');
+      const card = this.findFree(cardId);
+      if (!card) return fail(this.freeError(cardId, 'Essa carta não está na mão.'));
       const symbol = `${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[card.suit]}`;
 
       if (card.suit === 'H') {
@@ -1427,7 +1558,7 @@
       if (targets.some((t) => !t)) return { error: 'Escolha cartas do inimigo que ainda estejam de pé.' };
       if (targets.some((t) => this.isLocked(enemy, t))) return { error: 'Essa carta está travada: tire primeiro as que estão na frente dela.' };
       const cards = this.handCards(cardIds);
-      if (!cards || !cards.length) return { error: 'Escolha cartas da mão.' };
+      if (!cards || !cards.length) return { error: this.badPick(cardIds) };
       if (this.pending.frozen && cards.some((c) => c.id === this.pending.frozen)) return { error: 'Essa carta está congelada até você tirar uma carta do inimigo.' };
       return { enemy, cards, targets };
     }
@@ -1491,7 +1622,7 @@
       for (let i = 0; i < n; i++) {
         let card = this.playerDeck.pop();
         if (!card && this.hand.length) {
-          card = this.hand.reduce((low, c) => (c.rank < low.rank ? c : low), this.hand[0]);
+          card = this.freeCards().reduce((low, c) => (c.rank < low.rank ? c : low));
           this.hand = this.hand.filter((c) => c !== card);
         }
         if (!card) break;
@@ -1566,8 +1697,8 @@
     // Se era a última carta da mão e não há como seguir, o jogo termina.
     flee(cardId) {
       if (!this.canFight()) return fail('Não há combate agora.');
-      const card = this.hand.find((c) => c.id === cardId);
-      if (!card) return fail('Escolha a carta que você descarta para fugir.');
+      const card = this.findFree(cardId);
+      if (!card) return fail(this.freeError(cardId, 'Escolha a carta que você descarta para fugir.'));
       const enemy = this.combatEnemy();
       if (enemy.boss) return fail('Não há como fugir do Chefão!');
       this.hand = this.hand.filter((c) => c !== card);
@@ -1591,11 +1722,13 @@
     // Efeitos que acontecem quando o combate começa.
     startCombatEffects(enemy) {
       const A = DC.ROGUE.ABILITIES;
-      if (enemy.ability === 'nymph' && !enemy.loot && this.stash.length) {
-        enemy.loot = this.stash.shift();
+      if (enemy.ability === 'nymph' && !enemy.loot && this.stashCols.length) {
+        const first = this.stashCols[0];
+        enemy.loot = first.pop();
+        if (!first.length) this.stashCols.shift();
         this.log(`${A.nymph.name}: rouba a carta guardada ${DC.rankLabel(enemy.loot.rank)}${DC.SUIT_SYMBOL[enemy.loot.suit]}! Derrote-a para recuperar.`, 'bad');
-      } else if (enemy.ability === 'ice' && this.hand.length > 1) {
-        const card = this.itemRng.pick(this.hand);
+      } else if (enemy.ability === 'ice' && this.freeCards().length > 1) {
+        const card = this.itemRng.pick(this.freeCards());
         this.pending.frozen = card.id;
         this.log(`${A.ice.name}: ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[card.suit]} fica congelada até você derrubar uma carta do inimigo.`, 'bad');
       } else if (enemy.ability === 'rust') {
@@ -1608,8 +1741,8 @@
       const card = enemy.loot;
       if (!card) return;
       enemy.loot = null;
-      if (this.stash.length < this.slotsOpen) this.stash.push(card);
-      else if (this.hand.length < this.handLimit()) this.hand.push(card);
+      if (this.stashCols.length < this.slotsOpen) this.stashCols.push([card]);
+      else if (this.slotsFree() > 0) this.cols.push([card]);
       else this.discard.push(card);
       this.log(`Você recupera ${DC.rankLabel(card.rank)}${DC.SUIT_SYMBOL[card.suit]}.`, 'good');
     }
@@ -1758,7 +1891,7 @@
         count = cards.length;
         text = `${cards.length} cartas novas entram no seu deck: ${cards.map((c) => `${DC.rankLabel(c.rank)}${DC.SUIT_SYMBOL[c.suit]}`).join(', ')}.`;
       } else {
-        count = this.draw(this.handLimit() - this.hand.length);
+        count = this.draw(this.slotsFree());
         text = count ? `a mão se enche (+${count} carta${count === 1 ? '' : 's'}).` : 'sua mão já estava cheia: o efeito se perdeu.';
       }
       fx.used = true;
@@ -1784,8 +1917,8 @@
 
     resolveAltar(cardId) {
       if (!this.pending || this.pending.type !== 'altar') return fail('Nenhum altar aberto.');
-      const card = this.hand.find((c) => c.id === cardId);
-      if (!card) return fail('Escolha 1 carta da mão para o altar.');
+      const card = this.findFree(cardId);
+      if (!card) return fail(this.freeError(cardId, 'Escolha 1 carta da mão para o altar.'));
       const prize = this.altarPrize(card.rank);
       if (prize !== 'ring' && this.items.length >= this.config.maxItems) return fail('Sua bolsa está cheia: use um item antes de sacrificar.');
       const fx = this.floor.fixtures[this.pending.fixtureId];
@@ -1815,7 +1948,8 @@
       if (!fx.offers.includes(key)) return fail('Esse pergaminho não está na estante.');
       const need = this.config.libraryCost;
       const cards = this.handCards(cardIds);
-      if (!cards || cards.length !== need) return fail(`Pague ${need} carta${need === 1 ? '' : 's'} da mão.`);
+      if (!cards) return fail(this.badPick(cardIds));
+      if (cards.length !== need) return fail(`Pague ${need} carta${need === 1 ? '' : 's'} da mão.`);
       if (key === 'slot' && this.slotsOpen >= this.config.maxSlots) return fail('Seus slots de inventário já estão no máximo.');
       if (key !== 'slot' && this.items.length >= this.config.maxItems) return fail('Sua bolsa está cheia: use um item antes.');
       this.hand = this.hand.filter((c) => !cards.includes(c));
@@ -1838,7 +1972,8 @@
       if (!this.pending || this.pending.type !== 'crypt') return fail('Nenhuma cripta aberta.');
       const cfg = this.config;
       const pay = this.handCards(payIds);
-      if (!pay || pay.length !== cfg.cryptCost) return fail(`Pague ${cfg.cryptCost} carta${cfg.cryptCost === 1 ? '' : 's'} da mão.`);
+      if (!pay) return fail(this.badPick(payIds));
+      if (pay.length !== cfg.cryptCost) return fail(`Pague ${cfg.cryptCost} carta${cfg.cryptCost === 1 ? '' : 's'} da mão.`);
       const ids = [...new Set(graveIds)];
       const take = this.discard.filter((c) => ids.includes(c.id));
       const want = Math.min(cfg.cryptTake, this.discard.length);
@@ -1864,8 +1999,8 @@
     // a aposta vai para o cemitério. Aposta baixa perde quase sempre mas custa pouco; aposta alta ganha quase sempre.
     resolveTable(cardId) {
       if (!this.pending || this.pending.type !== 'table') return fail('Nenhuma mesa aberta.');
-      const bet = this.hand.find((c) => c.id === cardId);
-      if (!bet) return fail('Escolha 1 carta da mão para apostar.');
+      const bet = this.findFree(cardId);
+      if (!bet) return fail(this.freeError(cardId, 'Escolha 1 carta da mão para apostar.'));
       const fx = this.floor.fixtures[this.pending.fixtureId];
       const house = this.newCards(1)[0];
       const outcome = bet.rank > house.rank ? 'win' : bet.rank === house.rank ? 'tie' : 'lose';
@@ -1903,8 +2038,10 @@
       if (!this.pending || this.pending.type !== 'forge') return fail('Nenhuma oficina aberta.');
       const target = this.hand.find((c) => c.id === targetId);
       if (!target) return fail('Escolha a carta a melhorar.');
+      if (this.colOf(target).length > 1) return fail('Tire a carta da pilha antes de melhorá-la: mudar o valor ou o naipe desfaria a pilha.');
       const burn = this.handCards(burnIds);
-      if (!burn || burn.length !== this.config.forgeCost) return fail(`Escolha ${this.config.forgeCost} carta${this.config.forgeCost === 1 ? '' : 's'} para queimar.`);
+      if (!burn) return fail(this.badPick(burnIds));
+      if (burn.length !== this.config.forgeCost) return fail(`Escolha ${this.config.forgeCost} carta${this.config.forgeCost === 1 ? '' : 's'} para queimar.`);
       if (burn.includes(target)) return fail('A carta a melhorar não pode ser a que queima.');
       if (mode === 'up') {
         if (target.rank >= 13) return fail('Um K não sobe mais.');
@@ -1938,8 +2075,8 @@
       const key = item.item;
       if (def.signed) {
         if (this.inCombat() && def.use !== 'fight') return fail(`O Pergaminho de ${def.name} só vale ao pagar portas e baús.`);
-        const card = this.hand.find((c) => c.id === cardId);
-        if (!card) return fail('Escolha 1 carta da mão para o pergaminho.');
+        const card = this.findFree(cardId);
+        if (!card) return fail(this.freeError(cardId, 'Escolha 1 carta da mão para o pergaminho.'));
         const bad = this.adjustCard(card, { ...def, name: `Pergaminho de ${def.name}` }, dir);
         if (bad) return bad;
         this.items = this.items.filter((i) => i !== item);
@@ -2100,7 +2237,7 @@
       if (!this.pending || this.pending.type !== 'refill') return [];
       const bonus = this.pending.bonus || 0;
       const room = this.pending.draws === undefined ? this.config.refillDraw : this.pending.draws;
-      const count = Math.min(bonus + room + this.ringBonus('deck'), this.handLimit() - this.hand.length, this.playerDeck.length);
+      const count = Math.min(bonus + room + this.ringBonus('deck'), this.slotsFree(), this.playerDeck.length);
       const cards = [];
       for (let i = 0; i < count; i++) {
         cards.push({ card: this.playerDeck[this.playerDeck.length - 1 - i], extra: i < bonus });

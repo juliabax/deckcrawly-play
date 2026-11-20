@@ -3173,7 +3173,7 @@ html.art .t-enemy .enemy-cards.boss-open {
     grid-column: 1 / -1;
     grid-row: 7;
     flex-wrap: wrap;
-    padding-top: 22px;
+    padding-top: calc(22px + var(--hup, 0) * var(--hand-cw) * 0.4); /* as cartas de trás das pilhas sobem acima da mão */
   }
 
   .handbar .hand {
@@ -3881,4 +3881,95 @@ body.kbd .board-slot.kbd-cursor {
 
 body:not(.kbd) .kbd-cursor {
   outline: none;
+}
+
+/* =====================================================================================================================
+   PILHAS: cada slot da mão (e do inventário) guarda 1 a 3 cartas do mesmo naipe, em ordem descendente. A da frente (a
+   menor) é a livre; as de trás aparecem acima dela e só se usam depois, de baixo para cima.
+   ===================================================================================================================== */
+
+.hand .hcol {
+  position: relative;
+  flex: none;
+  width: var(--hand-cw, 96px);
+  height: calc(var(--hand-cw, 96px) * 1.4);
+}
+
+/* as cartas de trás sobem; a da frente (--d: 0) fica no lugar de sempre */
+.hand .hcol .card {
+  position: absolute;
+  left: 0;
+  top: calc(var(--d, 0) * var(--hand-cw, 96px) * -0.4);
+}
+
+/* o leque (--i e --n) vem do slot: todas as cartas da pilha giram juntas */
+.hand .card.trapped {
+  filter: brightness(0.92);
+}
+
+html:not(.touch) .hand .card.trapped:hover {
+  rotate: calc((var(--i, 0) - (var(--n, 1) - 1) / 2) * 2.6deg);
+  transform: none;
+  z-index: auto;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  filter: brightness(1.06);
+}
+
+.hand .card.trapped.sel {
+  filter: none;
+}
+
+/* nas janelas: carta presa numa pilha aparece apagada */
+.cardrow .card.trapped {
+  opacity: 0.55;
+}
+
+.cardrow .card.trapped.sel {
+  opacity: 1;
+}
+
+/* arrastar: "empilhar" tem uma mira verde, diferente de "mover" */
+.drop-stack {
+  outline: 3px solid #7fdc8c;
+  outline-offset: 3px;
+  border-radius: 10px;
+  box-shadow: 0 0 18px 4px rgba(127, 220, 140, 0.55);
+}
+
+.stash-slot.drop-stack {
+  background: rgba(127, 220, 140, 0.18);
+}
+
+/* inventário: a pilha sobe a partir da carta da frente */
+.stash-slot .sstack {
+  --cw: 56px; /* igual ao das cartas do slot */
+  position: relative;
+  width: var(--cw);
+  height: calc(var(--cw) * 1.4);
+}
+
+.touch .stash-slot .sstack {
+  --cw: 62px;
+}
+
+.stash-slot .sstack .card {
+  position: absolute;
+  left: 0;
+  top: calc(var(--d, 0) * var(--cw) * -0.3);
+}
+
+.handbar .stash-slot .sstack {
+  --cw: calc(var(--hand-cw) * 0.56);
+}
+
+.stash-slot.filled:not([data-size='1']) {
+  overflow: visible;
+}
+
+.stash-row {
+  padding-top: calc(var(--up, 0) * 17px);
+}
+
+.no-fx .hand .hcol .card {
+  transition: none;
 }

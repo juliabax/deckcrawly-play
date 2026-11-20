@@ -501,7 +501,7 @@
         return e.shiftKey ? this.runDir(dir[0], dir[1]) : this.stepDir(dir[0], dir[1]);
       }
       // Cartas da mão: 1 a 9.
-      if (/^[1-9]$/.test(k) && g.hand[Number(k) - 1]) return this.toggleCard(g.hand[Number(k) - 1].id);
+      if (/^[1-9]$/.test(k) && g.freeCards()[Number(k) - 1]) return this.toggleCard(g.freeCards()[Number(k) - 1].id);
 
       if (k === 'Enter' || k === ' ') {
         e.preventDefault();
@@ -524,6 +524,8 @@
       if (k === ',' || k === '<') return this.kbdAdjust(-1);
       if (k === '.' || k === '>') return this.kbdAdjust(1);
       if (lower === 'n') return this.kbdSuitRing();
+      if (lower === 'y') return this.kbdStack();
+      if (lower === 'u') return this.kbdUnstack();
     }
 
     // O foco do teclado: com ele ligado aparecem os números e o cursor; um clique do mouse desliga.
@@ -730,7 +732,7 @@
         return null;
       };
       const clearMarks = () => {
-        for (const n of document.querySelectorAll('.drop-target')) n.classList.remove('drop-target');
+        for (const n of document.querySelectorAll('.drop-target, .drop-stack')) n.classList.remove('drop-target', 'drop-stack');
       };
       const end = () => {
         if (cand && cand.ghost) cand.ghost.remove();
@@ -743,6 +745,7 @@
         if ((e.pointerType === 'mouse' && e.button !== 0) || this.busy || !this.game.canStore()) return;
         const slot = e.target.closest('#stash .stash-slot.filled');
         const card = slot ? null : e.target.closest('#hand .card');
+        if (card && card.classList.contains('trapped')) return; // presa na pilha: só toca (escolhe), não arrasta
         const src = slot || card;
         if (!src || !src.dataset.id) return;
         cand = { src, id: src.dataset.id, from: slot ? 'stash' : 'hand', x: e.clientX, y: e.clientY, pointerId: e.pointerId, started: false, ghost: null };
@@ -768,7 +771,12 @@
         g.style.top = `${e.clientY}px`;
         clearMarks();
         const t = targetAt(e.clientX, e.clientY);
-        if (t && t.el !== cand.src) t.el.classList.add('drop-target');
+        if (t && t.el !== cand.src) {
+          // Em cima de uma carta que ela pode cobrir (mesmo naipe, 1 a menos), a mira vira "empilhar".
+          const onto = t.kind === 'handcard' || (t.kind === 'slot' && t.el.dataset.id) ? this.stackOnto(cand.id, t.el) : null;
+          const mark = onto && t.kind === 'handcard' ? this.el.hand.querySelector(`.card[data-id="${onto.id}"]`) : t.el;
+          mark.classList.add(onto ? 'drop-stack' : 'drop-target');
+        }
       }, { passive: false });
       const finish = (e) => {
         if (!cand || e.pointerId !== cand.pointerId) return;
@@ -792,21 +800,51 @@
       }, true);
     }
 
+    // A carta da frente do slot (da mão ou do inventário) que `cardId` poderia cobrir, ou null: mesmo naipe, exatamente
+    // 1 a menos, pilha com espaço, e não é o próprio slot dela.
+    stackOnto(cardId, el) {
+      const g = this.game;
+      const card = g.hand.find((c) => c.id === cardId) || g.stash.find((c) => c.id === cardId);
+      if (!card) return null;
+      let front = null;
+      if (el.classList.contains('stash-slot')) front = g.stash.find((c) => c.id === el.dataset.id) || null;
+      else {
+        const col = g.cols.find((k) => k.some((c) => c.id === el.dataset.id));
+        front = col ? col[col.length - 1] : null;
+      }
+      if (!front || front === card) return null;
+      const to = g.locate(front.id);
+      const from = g.locate(card.id);
+      if (!to || !from || to.col === from.col || to.col.length >= g.config.stackMax) return null;
+      if (from.col[from.col.length - 1] !== card) return null;
+      return g.stackError(card, front) ? null : front;
+    }
+
     // Solta a carta `c` (de onde veio e o id) em cima do alvo.
     dropCard(c, target, rect) {
       const g = this.game;
-      const hand = g.hand;
-      const idxOfCard = (el) => hand.findIndex((x) => x.id === el.dataset.id);
+      const colOf = (el) => g.cols.findIndex((k) => k.some((x) => x.id === el.dataset.id));
       if ((c.from === 'stash' || target.kind === 'slot') && g.pending && g.pending.type === 'refill') return this.toast('Pegue as cartas primeiro.');
+      // Em cima de uma carta que ela pode cobrir: empilha (grátis).
+      const onto = target.kind === 'handcard' || (target.kind === 'slot' && target.el.dataset.id) ? this.stackOnto(c.id, target.el) : null;
+      if (onto) {
+        const res = g.stackCard(c.id, onto.id);
+        if (!res.ok) return this.reject(res.error);
+        this.track('stack');
+        this.sound('stash');
+        return this.renderAll();
+      }
       if (c.from === 'hand') {
         if (target.kind === 'handcard') {
-          const res = g.moveHandCard(c.id, idxOfCard(target.el));
+          const res = g.moveHandCard(c.id, colOf(target.el));
           if (!res.ok) return this.reject(res.error);
           if (res.moved) this.sound('draw');
           return this.renderAll();
         }
         if (target.kind === 'hand') {
-          g.moveHandCard(c.id, hand.length - 1);
+          const res = g.moveHandCard(c.id, g.cols.length);
+          if (!res.ok) return this.reject(res.error);
+          if (res.moved) this.sound('draw');
           return this.renderAll();
         }
         const slot = target.el;
@@ -829,15 +867,15 @@
       if (target.kind === 'slot') {
         const slot = target.el;
         if (slot.classList.contains('locked')) return;
-        const to = slot.dataset.id ? g.stash.findIndex((x) => x.id === slot.dataset.id) : g.stash.length - 1;
+        const to = slot.dataset.id ? g.stashCols.findIndex((k) => k.some((x) => x.id === slot.dataset.id)) : g.stashCols.length;
         const res = g.moveStash(c.id, to);
         if (!res.ok) return this.reject(res.error);
         if (res.moved) this.sound('draw');
         return this.renderAll();
       }
-      const full = hand.length >= g.handLimit();
+      const full = g.slotsFree() <= 0;
       if (target.kind === 'handcard') {
-        const at = idxOfCard(target.el);
+        const at = colOf(target.el);
         const res = full ? g.swapStash(target.el.dataset.id, c.id) : g.unstashCard(c.id);
         if (!res.ok) return this.reject(res.error);
         if (!full) g.moveHandCard(c.id, at);
@@ -850,6 +888,32 @@
       const res = g.unstashCard(c.id);
       if (!res.ok) return this.reject(res.error);
       this.fxEnter = rect;
+      this.sound('draw');
+      this.renderAll();
+    }
+
+    // Y: empilha a carta escolhida em cima de outra da mão (mesmo naipe, 1 a mais). U: tira a carta da frente da pilha.
+    kbdStack() {
+      const g = this.game;
+      const card = this.sel.length === 1 ? g.findFree(this.sel[0]) : null;
+      if (!card) return this.toast('Escolha 1 carta da frente de um slot e aperte Y para empilhar nela outra carta.');
+      const onto = g.freeCards().find((o) => o !== card && !g.stackError(card, o) && g.colOf(o).length < g.config.stackMax && g.colOf(o) !== g.colOf(card));
+      if (!onto) return this.toast(`Não há onde empilhar ${label(card)}: precisa de ${DC.rankLabel(card.rank + 1)}${DC.SUIT_SYMBOL[card.suit]} livre na frente de um slot.`);
+      const res = g.stackCard(card.id, onto.id);
+      if (!res.ok) return this.reject(res.error);
+      this.sel = [];
+      this.track('stack');
+      this.sound('stash');
+      this.renderAll();
+    }
+
+    kbdUnstack() {
+      const g = this.game;
+      const card = this.sel.length === 1 ? g.findFree(this.sel[0]) : null;
+      if (!card || g.colOf(card).length < 2) return this.toast('Escolha a carta da frente de uma pilha e aperte U para tirá-la dela.');
+      const res = g.moveHandCard(card.id, g.cols.length);
+      if (!res.ok) return this.reject(res.error);
+      this.sel = [];
       this.sound('draw');
       this.renderAll();
     }
@@ -1699,11 +1763,20 @@
 
     toggleCard(id) {
       if (this.busy || !(this.game.canAct() || this.game.canFight())) return;
-      if (this.game.pending && this.game.pending.frozen === id) return this.toast('Essa carta está congelada até você derrubar uma carta do inimigo.');
-      const at = this.sel.indexOf(id);
-      if (at >= 0) this.sel.splice(at, 1);
-      else this.sel.push(id);
-      this.sound(at >= 0 ? 'deselect' : 'select');
+      const g = this.game;
+      // Numa pilha, escolher uma carta de trás escolhe também todas as da frente dela (só dá para usar de baixo para cima);
+      // desmarcar uma carta desmarca também as de trás dela.
+      const col = g.cols.find((k) => k.some((c) => c.id === id));
+      const at = col ? col.findIndex((c) => c.id === id) : 0;
+      const front = col ? col.slice(at).map((c) => c.id) : [id];
+      const behind = col ? col.slice(0, at + 1).map((c) => c.id) : [id];
+      const selected = this.sel.includes(id);
+      if (!selected && g.pending && g.pending.frozen && front.includes(g.pending.frozen)) {
+        return this.toast(front.length > 1 && g.pending.frozen !== id ? 'Tem uma carta congelada na frente dela na pilha: ela só descongela quando você derrubar uma carta do inimigo.' : 'Essa carta está congelada até você derrubar uma carta do inimigo.');
+      }
+      if (selected) this.sel = this.sel.filter((x) => !behind.includes(x));
+      else this.sel.push(...front.filter((x) => !this.sel.includes(x)));
+      this.sound(selected ? 'deselect' : 'select');
       this.refreshSelection();
     }
 
@@ -2048,6 +2121,7 @@
           this.doFlee();
           break;
         case 'toggle-discard':
+          if (!this.pickInPile(id, this.discard, true)) break;
           if (this.discard.has(id)) this.discard.delete(id);
           else this.discard.add(id);
           this.renderOverlay();
@@ -2104,6 +2178,7 @@
           break;
         }
         case 'altar-pick':
+          if (!this.pickInPile(id, this.discard, false)) break;
           this.discard = this.discard.has(id) ? new Set() : new Set([id]);
           this.renderOverlay();
           break;
@@ -2135,6 +2210,7 @@
         }
         case 'crypt-pay': {
           const need = g.config.cryptCost;
+          if (!this.pickInPile(id, this.discard, true)) break;
           if (this.discard.has(id)) this.discard.delete(id);
           else if (this.discard.size < need) this.discard.add(id);
           else if (need === 1) this.discard = new Set([id]);
@@ -2164,6 +2240,7 @@
           break;
         }
         case 'table-pick':
+          if (!this.pickInPile(id, this.discard, false)) break;
           this.discard = this.discard.has(id) ? new Set() : new Set([id]);
           this.renderOverlay();
           break;
@@ -2194,6 +2271,7 @@
           this.renderOverlay();
           break;
         case 'forge-burn':
+          if (this.forgeBurn !== id && !this.pickInPile(id, new Set(), false)) break;
           this.forgeBurn = this.forgeBurn === id ? null : id;
           if (this.forgeTarget === id) this.forgeTarget = null;
           this.renderOverlay();
@@ -2281,6 +2359,7 @@
 
     renderAll() {
       this.sel = this.sel.filter((id) => this.game.hand.some((c) => c.id === id));
+      if (!this.game.handCards(this.sel)) this.sel = []; // a pilha mudou: a escolha que sobrou não vale mais
       // A lateral e a mão primeiro: elas definem a altura que sobra para o mapa.
       this.renderSide();
       this.checkHints();
@@ -2380,7 +2459,7 @@
     // Quantas cartas o poder de ♥ (comprar) compraria agora, limitado pela mão e pelo deck.
     powerCount(card) {
       const g = this.game;
-      return Math.min(card.rank, g.handLimit() - (g.hand.length - 1), g.playerDeck.length);
+      return Math.min(card.rank, g.slotsFree() + (g.colOf(card) && g.colOf(card).length === 1 ? 1 : 0), g.playerDeck.length);
     }
 
     // ---------- inventário (slots do Pergaminho de Inventário) ----------
@@ -2391,9 +2470,12 @@
       let html = '';
       for (let i = 0; i < g.config.maxSlots; i++) {
         const fresh = i === this.newSlot ? ' fresh' : '';
-        if (i < g.stash.length) {
-          const card = g.stash[i];
-          html += `<div class="stash-slot filled${fresh}" data-slot="${i}" data-id="${card.id}" title="${label(card)} guardada: toque para devolver à mão">${cardHTML(card, { small: true, extra: 'static' })}</div>`;
+        if (i < g.stashCols.length) {
+          // Um slot do inventário pode ter uma pilha (como a mão): a da frente é a que sai ao tocar.
+          const col = g.stashCols[i];
+          const card = col[col.length - 1];
+          const stack = col.map((c, k) => cardHTML(c, { small: true, extra: k === col.length - 1 ? 'static' : 'static trapped' }).replace('class="card', `style="--d:${col.length - 1 - k}" class="card`)).join('');
+          html += `<div class="stash-slot filled${fresh}" data-slot="${i}" data-id="${card.id}" data-size="${col.length}" title="${label(card)} guardada: toque para devolver à mão${col.length > 1 ? ` (a pilha tem ${col.length} cartas: sai a da frente)` : ''}"><div class="sstack">${stack}</div></div>`;
         } else if (i < g.slotsOpen) {
           html += `<div class="stash-slot open${fresh}" data-slot="${i}" title="Slot livre: escolha 1 carta da mão e toque aqui para guardá-la"><b>+</b></div>`;
         } else {
@@ -2406,7 +2488,7 @@
     renderStash() {
       const g = this.game;
       const gear = this.bagHTML();
-      this.el.stash.innerHTML = `<div class="stash-group"><div class="stash-label">Inventário ${g.slotsOpen ? `${g.stash.length}/${g.slotsOpen}` : 'bloqueado'}</div><div class="stash-row">${this.slotsInner()}</div></div>`;
+      this.el.stash.innerHTML = `<div class="stash-group"><div class="stash-label">Inventário ${g.slotsOpen ? `${g.stashCols.length}/${g.slotsOpen}` : 'bloqueado'}</div><div class="stash-row" style="--up:${Math.max(0, ...g.stashCols.map((k) => k.length - 1))}">${this.slotsInner()}</div></div>`;
       this.el.gear.innerHTML = gear;
       this.el.gear.hidden = !gear;
       this.newSlot = -1;
@@ -2572,7 +2654,7 @@
       const cfg = g.config;
       const target = g.hand.find((c) => c.id === this.forgeTarget) || null;
       const burn = g.hand.find((c) => c.id === this.forgeBurn) || null;
-      const row = (attr, chosenId) => g.hand.map((c) => cardHTML(c, { selected: c.id === chosenId, extra: '' }).replace('class="card', `data-ov="${attr}" class="card`)).join('');
+      const row = (attr, chosenId) => g.hand.map((c) => cardHTML(c, { selected: c.id === chosenId, extra: attr === 'forge-burn' && !g.isFree(c) ? 'trapped' : '' }).replace('class="card', `data-ov="${attr}" class="card`)).join('');
       const needBurn = cfg.forgeCost > 0;
       const ready = Boolean(target && (burn || !needBurn));
       const upOk = ready && target.rank < 13;
@@ -2731,7 +2813,7 @@
     stashModalHTML() {
       const g = this.game;
       if (!g.slotsOpen) return '';
-      return `<h4>Inventário ${g.stash.length}/${g.slotsOpen} · guardar em vez de descartar</h4><div class="stash-row modal-stash">${this.slotsInner()}</div>`;
+      return `<h4>Inventário ${g.stashCols.length}/${g.slotsOpen} · guardar em vez de descartar</h4><div class="stash-row modal-stash" style="--up:${Math.max(0, ...g.stashCols.map((k) => k.length - 1))}">${this.slotsInner()}</div>`;
     }
 
     // Qual carta da mão vai para um slot livre: a marcada para descartar (baú) ou
@@ -2752,7 +2834,7 @@
       if (el.dataset.id) {
         // Slot com carta: devolve para a mão. Com a mão cheia, a carta marcada troca de lugar com ela.
         const swap = this.slotCandidate();
-        if (g.hand.length >= g.handLimit() && !swap) return this.toast('Mão cheia: marque 1 carta da mão e toque na guardada para trocar de lugar.');
+        if (g.slotsFree() <= 0 && !swap) return this.toast('Mão cheia: marque 1 carta da mão e toque na guardada para trocar de lugar.');
         const res = g.unstashCard(el.dataset.id, swap);
         if (!res.ok) return this.reject(res.error);
         if (res.swapped) {
@@ -2833,31 +2915,55 @@
         old.delete(id);
       }
 
-      const nodes = g.hand.map((card, i) => {
-        const selected = this.sel.includes(card.id);
-        // Mostra sempre o que a carta faz de verdade: ♦ dobra ao andar, ♣ copia,
-        // ♥ devolve e ♠ compra (já limitado pelo descarte, pelo deck e pela mão).
-        // Em combate, uma carta congelada (Gelo) fica marcada na mão até você derrubar uma carta do inimigo.
-        const frozen = g.pending && g.pending.frozen === card.id;
-        const next = htmlToEl(cardHTML(card, { selected, badge: frozen ? '❄ congelada' : this.cardBadge(card), extra: frozen ? 'frozen' : '' }));
-        let node = old.get(card.id);
-        if (node) {
-          node.className = next.className;
-          node.innerHTML = next.innerHTML;
-          node.title = next.title;
-        } else node = next;
-        node.style.setProperty('--i', i);
-        node.style.setProperty('--n', g.hand.length);
-        return node;
+      // Cada slot é uma coluna (.hcol) com 1 a 3 cartas: a da frente (a menor) é a livre; as de trás aparecem acima dela.
+      const nodeOf = new Map();
+      g.cols.forEach((col, ci) => {
+        col.forEach((card, k) => {
+          const selected = this.sel.includes(card.id);
+          const front = k === col.length - 1;
+          // Mostra sempre o que a carta faz de verdade: ♦ dobra ao andar, ♣ copia,
+          // ♥ devolve e ♠ compra (já limitado pelo descarte, pelo deck e pela mão).
+          // Em combate, uma carta congelada (Gelo) fica marcada na mão até você derrubar uma carta do inimigo.
+          const frozen = g.pending && g.pending.frozen === card.id;
+          const extra = [frozen ? 'frozen' : '', front ? '' : 'trapped'].filter(Boolean).join(' ');
+          const next = htmlToEl(cardHTML(card, { selected, badge: !front ? '' : frozen ? '❄ congelada' : this.cardBadge(card), extra }));
+          let node = old.get(card.id);
+          if (node) {
+            node.className = next.className;
+            node.innerHTML = next.innerHTML;
+            node.title = next.title;
+          } else node = next;
+          node.style.setProperty('--d', col.length - 1 - k);
+          nodeOf.set(card.id, node);
+        });
       });
+      const nodes = g.hand.map((card) => nodeOf.get(card.id));
 
-      hand.querySelectorAll('.slot').forEach((s) => s.remove());
-      nodes.forEach((node, i) => {
-        if (hand.children[i] !== node) hand.insertBefore(node, hand.children[i] || null);
+      hand.querySelectorAll('.slot').forEach((n) => n.remove());
+      const wraps = [...hand.querySelectorAll(':scope > .hcol')];
+      g.cols.forEach((col, ci) => {
+        let wrap = wraps[ci];
+        if (!wrap) {
+          wrap = document.createElement('div');
+          wrap.className = 'hcol';
+          hand.appendChild(wrap);
+        }
+        wrap.style.setProperty('--i', ci);
+        wrap.style.setProperty('--n', g.cols.length);
+        wrap.dataset.size = col.length;
+        col.forEach((card, k) => {
+          const node = nodeOf.get(card.id);
+          if (wrap.children[k] !== node) wrap.insertBefore(node, wrap.children[k] || null);
+        });
+        while (wrap.children.length > col.length) wrap.lastChild.remove();
       });
-      for (let i = g.hand.length; i < g.handLimit(); i++) {
+      for (const extra of wraps.slice(g.cols.length)) extra.remove();
+      // Quantas cartas a pilha mais alta tem acima da livre: na tela em pé a barra cresce esse tanto para não cobrir a bolsa.
+      if (hand.parentElement) hand.parentElement.style.setProperty('--hup', Math.max(0, ...g.cols.map((k) => k.length - 1)));
+      for (let i = g.cols.length; i < g.handLimit(); i++) {
         const slot = document.createElement('div');
         slot.className = 'slot';
+        slot.title = 'Slot livre: as cartas novas entram aqui. Arraste para cá a carta da frente de uma pilha para tirá-la dela.';
         hand.appendChild(slot);
       }
 
@@ -2927,7 +3033,7 @@
       const g = this.game;
       let html = '';
       for (const joker of cards.filter((c) => c.suit === 'C')) {
-        const others = g.hand.filter((c) => c.id !== joker.id);
+        const others = g.freeCards().filter((c) => c.id !== joker.id);
         if (!others.length) continue;
         const current = g.jokerTarget(joker);
         html += `<div class="joker-choice"><span>${label(joker)} vale:<kbd>J</kbd></span><div class="joker-btns"><button class="btn small ${current ? '' : 'on'}" data-joker="${joker.id}" data-target="">${joker.rank} (própria)</button></div><span>ou copia:</span><div class="joker-btns">${others
@@ -3950,10 +4056,33 @@
       }
     }
 
+    // As cartas da mão numa janela: as presas embaixo de outras numa pilha aparecem apagadas (valem só quando as da frente
+    // delas também estão marcadas, nas janelas que aceitam mais de uma carta).
     handRow(attr, chosen) {
-      return this.game.hand
-        .map((c) => cardHTML(c, { selected: chosen.has(c.id), extra: '' }).replace('class="card', `data-ov="${attr}" class="card`))
+      const g = this.game;
+      return g.hand
+        .map((c) => cardHTML(c, { selected: chosen.has(c.id), extra: g.isFree(c) ? '' : 'trapped' }).replace('class="card', `data-ov="${attr}" class="card`))
         .join('');
+    }
+
+    // Numa janela com escolha de cartas da mão: uma carta presa numa pilha só entra quando todas as da frente dela já estão
+    // marcadas (`chosen`); desmarcar uma carta desmarca também as de trás dela. Devolve false se o toque não vale.
+    // `multi` diz se a janela aceita mais de uma carta (senão só a carta da frente vale).
+    pickInPile(id, chosen, multi) {
+      const g = this.game;
+      const col = g.cols.find((k) => k.some((c) => c.id === id));
+      if (!col) return true;
+      const at = col.findIndex((c) => c.id === id);
+      const inFront = col.slice(at + 1).map((c) => c.id);
+      if (chosen.has(id)) {
+        for (const c of col.slice(0, at)) chosen.delete(c.id);
+        return true;
+      }
+      if (inFront.length && !(multi && inFront.every((x) => chosen.has(x)))) {
+        this.toast(multi ? 'Essa carta está presa na pilha: marque primeiro as que estão na frente dela.' : 'Essa carta está presa na pilha: só a da frente vale aqui.');
+        return false;
+      }
+      return true;
     }
 
     // Cartas ganhas ao abrir uma porta que dá numa sala nova (ou ao descer de andar): aparecem de costas
@@ -3980,13 +4109,13 @@
         .join('');
       let note;
       if (gain.length) note = gain.length === 1 ? 'Você ganha <b>1 carta</b>.' : `Você ganha <b>${gain.length} cartas</b>.`;
-      else if (g.hand.length >= g.handLimit()) note = `Sua mão está cheia (${g.handLimit()}): nenhuma carta nova desta vez.`;
+      else if (g.slotsFree() <= 0) note = `Sua mão está cheia (${g.handLimit()} slots): nenhuma carta nova desta vez.`;
       else note = 'O seu deck acabou: não há cartas para ganhar.';
       return `<div class="modal reveal">
         <h2>${title}</h2>
         <p>${note}</p>
         <div class="reveal-row">${slots}</div>
-        <div class="summary">Mão: ${g.hand.length} → ${g.hand.length + gain.length}/${g.handLimit()} · deck: ${g.playerDeck.length - gain.length}</div>
+        <div class="summary">Slots: ${g.cols.length} → ${g.cols.length + gain.length}/${g.handLimit()} · deck: ${g.playerDeck.length - gain.length}</div>
         <div class="actions"><button class="btn primary" data-ov="confirm-refill">${gain.length ? 'Pegar as cartas' : 'Continuar'}</button></div>
       </div>`;
     }
@@ -4230,8 +4359,8 @@
       const options = g.pending.options;
       const picks = [...this.picks].filter((id) => options.some((c) => c.id === id));
       const out = [...this.discard].filter((id) => g.hand.some((c) => c.id === id));
-      const finalHand = g.hand.length - out.length + picks.length;
-      const valid = finalHand <= g.handLimit();
+      const finalHand = g.slotsAfter(g.hand.filter((c) => out.includes(c.id)), picks.length); // slots ocupados depois
+      const valid = finalHand <= g.handLimit() && Boolean(g.handCards(out));
       const deal = this.overlayFresh ? ' deal' : '';
       const optionRow = options
         .map((c, k) =>
@@ -4243,10 +4372,10 @@
         <h2>Baú aberto!</h2>
         <p>O baú revela ${options.length} cartas do seu deck. Escolha até ${g.config.chestPicks} para levar para a mão; as outras voltam ao deck.</p>
         <div class="cardrow${deal}">${optionRow || '<p class="muted">Seu deck está vazio.</p>'}</div>
-        <h4>Sua mão ${finalHand > g.handLimit() ? '· está cheia: marque cartas para descartar' : '(marque para descartar, se quiser)'}</h4>
+        <h4>Sua mão ${finalHand > g.handLimit() ? '· está cheia: marque cartas para descartar' : '(marque para descartar, se quiser)'}${g.cols.some((k) => k.length > 1) ? ' · numa pilha, de baixo para cima' : ''}</h4>
         <div class="cardrow">${g.hand.length ? this.handRow('toggle-discard', this.discard) : '<p class="muted">Sua mão está vazia.</p>'}</div>
         ${this.stashModalHTML()}
-        <div class="summary">Levando ${picks.length} · descartando ${out.length} · mão final ${finalHand}/${g.handLimit()}</div>
+        <div class="summary">Levando ${picks.length} · descartando ${out.length} · slots finais ${finalHand}/${g.handLimit()}</div>
         <div class="actions"><button class="btn primary" data-ov="confirm-chest" ${valid ? '' : 'disabled'}>${picks.length ? `Levar ${picks.length} carta(s)` : 'Não levar nada'}</button></div>
       </div>`;
     }
@@ -4322,6 +4451,8 @@
           <li><b>♦ Ouros:</b> mana. Descarte um ♦ pelo poder e ganhe mana igual ao número dele (até o teto de ${this.game.config.manaMax}). A mana fica guardada e é gasta nos anéis.</li>
           <li><b>♣ Paus:</b> coringa. Vale o próprio número, mas você pode escolher copiar o rank de outra carta da mão.</li>
         </ul>
+        <h4>Pilhas na mão</h4>
+        <p>A mão tem <b>${this.game.config.handMax} slots</b> e cada slot guarda uma carta ou uma <b>pilha de até ${this.game.config.stackMax}</b>. Para empilhar, <b>arraste</b> uma carta (a da frente do slot dela) para cima de outra do <b>mesmo naipe</b> que seja <b>exatamente 1 maior</b>: o 5♠ vai em cima do 6♠, que está em cima do 7♠. Em cada pilha, a carta que fica por último, na <b>frente</b> (a menor), é a <b>livre</b>: ela vale sozinha, ou somada com as de trás dela, <b>sempre de baixo para cima</b> (5♠ + 6♠ valem 11, mas a 7♠ sozinha está <b>presa</b>). Tocar numa carta presa escolhe ela e todas as da frente. Poderes, fuga, altar, mesa, anéis e comida só usam a carta livre; o anel de naipe e a oficina pedem a carta <b>fora da pilha</b>. As cartas novas (compra, baú, sala nova) entram em <b>slots livres</b> e <b>nunca se empilham sozinhas</b>; sem slot livre, nada entra. Para tirar a carta da frente da pilha, arraste-a para um slot livre (tracejado). Empilhar e desempilhar é grátis, a qualquer momento. O inventário também empilha, e dá para empilhar entre a mão e o inventário.</p>
         <h4>Anéis e mana</h4>
         <p>Os anéis ficam no dedo (<b>2 espaços</b>). Vêm de <b>baús</b> (metade deles guarda um, e o do <b>andar 1</b> sempre guarda) e de <b>inimigos</b> (os mais difíceis deixam mais). Ao achar um, você escolhe em que espaço vesti-lo, trocando o que estiver lá, ou deixa para trás. <b>Passivos</b> (valem sozinhos): <b>Mão</b> +1 na mão máxima, <b>Deck</b> +1 carta ao abrir sala nova, <b>Comida</b> porta aberta com soma exata põe 1 carta nova no deck, <b>Mago</b> +4 de mana máxima. <b>Ativos</b> (gastam ${this.game.config.ringUseMana} de mana por uso: escolha 1 carta da mão e toque no anel): <b>Ladrão</b> a carta sobe ou desce 1 ao pagar portas e baús, <b>Precisão</b> a carta sobe ou desce 1 em combate (só aquela carta, uma vez; com ♠ o ajuste entra depois do dobro), e os <b>anéis de naipe</b> (♠ ♥ ♦ ♣) viram a carta daquele naipe até ser usada.</p>
         <h4>Grama</h4>
@@ -4343,7 +4474,7 @@
         <h4>Salas novas</h4>
         <p>Ao <b>descer de andar</b> você ganha ${this.game.config.refillDraw} carta do seu deck, sem passar do limite de ${this.game.config.handMax} na mão: ela aparece de costas e vira. Abrir a porta de uma sala nova <b>não dá carta por si só</b>: só ganha cartas quem abre com <b>soma exata</b> (${this.game.config.exactBonus}, ou ${this.game.config.flushBonus} com 2 ou mais cartas do mesmo naipe), que viram numa janelinha antes de entrar na sala.</p>
         <h4>Atalhos (jogar sem o mouse)</h4>
-        <p><b>Mapa:</b> <b>setas</b> andam um passo; <b>Shift + seta</b> corre em linha reta; seta na direção de uma <b>porta, baú ou objeto</b> ao lado abre ou usa (com as cartas escolhidas); <b>Enter</b> ou <b>Espaço</b> faz o mesmo quando só há uma coisa ao lado. <b>1 a 9</b> escolhem cartas da mão <b>Esc</b> limpa a escolha. <b>P</b> usa o poder (♥ compra, ♦ vira mana), <b>J</b> passa pelas escolhas do coringa ♣, <b>S</b> guarda a carta escolhida no inventário, <b>D</b> devolve uma guardada, <b>, e .</b> dão −1 e +1 (anel ou pergaminho de Precisão e do Ladrão), <b>N</b> usa o anel de naipe, <b>G</b> abre o cemitério, <b>H</b> abre estas regras. <b>Combate:</b> <b>← →</b> escolhem a carta aberta do inimigo, <b>Espaço</b> marca, <b>Enter</b> derruba, <b>T</b> troca 1 por 1 e <b>X</b> foge. <b>Janelas:</b> <b>1 a 9</b> ou <b>← →</b> escolhem, <b>Espaço</b> marca o item do cursor, <b>Enter</b> confirma o botão principal e <b>Esc</b> deixa para trás ou fecha. <b>Outros:</b> F liga/desliga a névoa, E os efeitos, M o som, A alterna a arte, + e − aproximam e afastam o mapa, C centraliza no personagem.</p>
+        <p><b>Mapa:</b> <b>setas</b> andam um passo; <b>Shift + seta</b> corre em linha reta; seta na direção de uma <b>porta, baú ou objeto</b> ao lado abre ou usa (com as cartas escolhidas); <b>Enter</b> ou <b>Espaço</b> faz o mesmo quando só há uma coisa ao lado. <b>1 a 9</b> escolhem cartas da mão <b>Esc</b> limpa a escolha. <b>P</b> usa o poder (♥ compra, ♦ vira mana), <b>J</b> passa pelas escolhas do coringa ♣, <b>S</b> guarda a carta escolhida no inventário, <b>D</b> devolve uma guardada, <b>, e .</b> dão −1 e +1 (anel ou pergaminho de Precisão e do Ladrão), <b>N</b> usa o anel de naipe, <b>Y</b> empilha a carta escolhida em cima de outra da mão (mesmo naipe, 1 a mais), <b>U</b> tira a carta da frente da pilha para um slot livre, <b>G</b> abre o cemitério, <b>H</b> abre estas regras. <b>Combate:</b> <b>← →</b> escolhem a carta aberta do inimigo, <b>Espaço</b> marca, <b>Enter</b> derruba, <b>T</b> troca 1 por 1 e <b>X</b> foge. <b>Janelas:</b> <b>1 a 9</b> ou <b>← →</b> escolhem, <b>Espaço</b> marca o item do cursor, <b>Enter</b> confirma o botão principal e <b>Esc</b> deixa para trás ou fecha. <b>Outros:</b> F liga/desliga a névoa, E os efeitos, M o som, A alterna a arte, + e − aproximam e afastam o mapa, C centraliza no personagem.</p>
         ${this.artAvailable ? '<p class="muted">Arte do mapa, dos inimigos e do herói: pixel art de <b>Pixel_Poem</b> (pixel-poem.itch.io).</p>' : ''}
         <div class="actions"><button class="btn primary" data-ov="close-help">Entendi</button></div>
       </div>`;

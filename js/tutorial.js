@@ -456,6 +456,7 @@
       this.victories = 0;
       this.flees = 0;
       this.stashes = 0;
+      this.stacks = 0; // cartas empilhadas na mão ou no inventário
       this.scrolls = 0;
       this.reinforces = 0;
       this.ringsFound = 0;
@@ -505,6 +506,9 @@
           break;
         case 'stash':
           this.stashes++;
+          break;
+        case 'stack':
+          this.stacks++;
           break;
         case 'scroll':
           this.scrolls++;
@@ -589,7 +593,7 @@
       );
       lines.push(`♠ gastos: ${sp.spadeAttack} em combate (valem o número ou o dobro) · ${sp.spadeOther} fora do combate (portas, poder, fuga: o dobro se perde)`);
     }
-    lines.push(`Pergaminhos de Inventário: ${stats.scrolls} · cartas guardadas ${stats.stashes} vezes`);
+    lines.push(`Pergaminhos de Inventário: ${stats.scrolls} · cartas guardadas ${stats.stashes} vezes · empilhadas ${stats.stacks} vezes`);
     lines.push(`Anéis: ${stats.ringsFound} achados, ${stats.ringsWorn} vestidos · no dedo no fim: ${game.rings.filter(Boolean).map((r) => DC.ROGUE.RINGS[r.ring].name).join(', ') || 'nenhum'} · usos de anel: ${stats.ringUses} · pergaminhos de ±1 usados: ${stats.scrollUses} · cartas do Anel da Comida: ${stats.ringFoodCards}`);
     const sp = game.specials;
     lines.push(`Salas especiais: poço ${sp.well}, altar ${sp.altar}, biblioteca ${sp.library}, cripta ${sp.crypt}, mesa ${sp.table}, oficina ${sp.forge} usados · salas secretas na masmorra: ${sp.secretRooms}, portas achadas: ${sp.secretFound}, baús abertos: ${sp.secretChests} · cartas gastas em salas especiais: ${game.spent.special}`);
